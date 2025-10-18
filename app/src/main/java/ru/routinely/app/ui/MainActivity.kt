@@ -1,4 +1,4 @@
-package ru.routinely.app
+package ru.routinely.app.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity

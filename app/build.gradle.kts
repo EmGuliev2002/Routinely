@@ -58,6 +58,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.runtime:runtime-livedata:1.6.1")
 
+    implementation("androidx.compose.material:material-icons-extended")
+
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")

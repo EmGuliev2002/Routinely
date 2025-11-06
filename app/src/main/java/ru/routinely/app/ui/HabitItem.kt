@@ -3,40 +3,67 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.graphics.vector.ImageVector
+import java.util.concurrent.TimeUnit
 import androidx.compose.material3.*
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.routinely.app.model.Habit
+
+import java.util.Calendar
 import kotlin.math.roundToInt
+
+fun getIconByName(iconName: String?): ImageVector {
+    return when (iconName) {
+        "MenuBook" -> Icons.Default.MenuBook
+        "SportsGymnastics" -> Icons.Default.SportsGymnastics
+        "LocalFireDepartment" -> Icons.Default.LocalFireDepartment
+        "SelfImprovement" -> Icons.Default.SelfImprovement
+        // Убедитесь, что все имена здесь соответствуют тем, что сохраняются в БД
+        else -> Icons.Default.Menu // Иконка по умолчанию
+    }
+}
+
 
 @Composable
 fun HabitItem(
     habit: Habit,
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    // На самом деле, цвет лучше конвертировать из строки в Color. Я использую заглушку.
     cardColor: Color = Color(android.graphics.Color.parseColor(habit.color ?: "#B88EFA"))
 ) {
-    val isChecked = remember(habit.lastCompletedDate) {
-        // Логика: если дата последнего выполнения - сегодня
-        habit.lastCompletedDate == System.currentTimeMillis()
+    // Временно проверяем, если выполнение было сегодня, сравнивая с текущей датой.
+    val isCompletedToday = remember(habit.lastCompletedDate) {
+        if (habit.lastCompletedDate == null) return@remember false
+
+        // Получаем метку времени начала сегодняшнего дня (00:00:00)
+        val todayStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        // Привычка выполнена сегодня, если lastCompletedDate >= начало сегодняшнего дня
+        habit.lastCompletedDate >= todayStart
     }
 
-    // Вся карточка
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(90.dp) // Фиксированная или адаптивная высота
-            .clip(RoundedCornerShape(20.dp)),
+            .height(90.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .then(if (isCompletedToday) Modifier.alpha(0.6f) else Modifier),
         colors = CardDefaults.cardColors(containerColor = cardColor.copy(alpha = 0.85f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
@@ -47,11 +74,9 @@ fun HabitItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
 
-            // 1. Иконка
+            // 1. Иконка (ИСПРАВЛЕНО)
             Icon(
-                // Используем заглушку, так как нет информации о хранении иконок.
-                // В реальном проекте здесь будет логика загрузки иконки по habit.icon
-                imageVector = Icons.Default.Menu,
+                imageVector = getIconByName(habit.icon), // <-- ИСПОЛЬЗУЕМ ФУНКЦИЮ
                 contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier
@@ -67,15 +92,15 @@ fun HabitItem(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                // Название
+                // ... (остальной код)
                 Text(
                     text = habit.name,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 18.sp,
+                    textDecoration = if (isCompletedToday) TextDecoration.LineThrough else null
                 )
 
-                // Прогресс/Описание (15 стр. / 10 км.)
                 Text(
                     text = "${habit.currentStreak} дн. (ст.).",
                     color = Color.White.copy(alpha = 0.8f),
@@ -84,7 +109,7 @@ fun HabitItem(
 
                 Spacer(Modifier.height(4.dp))
 
-                // 3. Прогресс-бар (только для количественных привычек)
+                // 3. Прогресс-бар
                 if (habit.targetValue > 1) {
                     HabitProgressBar(habit, cardColor)
                 }
@@ -98,13 +123,12 @@ fun HabitItem(
                     .size(36.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .clickable {
-                        // Вызов колбэка для обновления состояния привычки в ViewModel
-                        onCheckedChange(!isChecked)
+                        onCheckedChange(!isCompletedToday)
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Checkbox(
-                    checked = isChecked,
+                    checked = isCompletedToday,
                     onCheckedChange = onCheckedChange,
                     colors = CheckboxDefaults.colors(
                         checkedColor = Color.White,

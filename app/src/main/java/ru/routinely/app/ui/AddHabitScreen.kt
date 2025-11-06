@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape // Нужен для ColorSelectorRow
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -33,6 +34,9 @@ val ICON_OPTIONS = listOf(
     Icons.Default.LocalFireDepartment, Icons.Default.SelfImprovement
 )
 
+val WEEK_DAYS = listOf("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+val WEEK_DAY_INDICES = 1..7 // Используем индексы для хранения в БД
+
 /**
  * Экран для создания и редактирования привычки (Stateful).
  * @param viewModel ViewModel для сохранения данных.
@@ -51,17 +55,23 @@ fun AddHabitScreen(
     // Сохраняем имя иконки, чтобы потом ее получить
     var selectedIconName by rememberSaveable { mutableStateOf(ICON_OPTIONS.first().name) }
     // Временно для типа привычки
-    var selectedType by rememberSaveable { mutableStateOf("daily") }
-
+    var selectedDays by rememberSaveable { mutableStateOf(setOf(1, 2, 3, 4, 5, 6, 7)) } // По умолчанию - ежедневно (все дни)
 
     // --- Функция для сохранения ---
     val onSaveHabit = {
         if (name.isNotBlank()) {
+            val typeValue = if (selectedDays.size == 7) {
+                "daily"
+            } else {
+                // Иначе сохраняем список выбранных дней в виде строки, например: "1,3,5"
+                selectedDays.sorted().joinToString(",")
+            }
+
             val newHabit = Habit(
                 name = name,
                 icon = selectedIconName, // Теперь сохраняем строковое имя иконки
                 color = selectedColor,
-                type = selectedType,
+                type = typeValue,
                 targetValue = targetValue.toIntOrNull() ?: 1,
                 creationDate = System.currentTimeMillis()
                 // Остальные поля инициализируются по умолчанию в модели
@@ -100,7 +110,9 @@ fun AddHabitScreen(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Название привычки") },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
             )
             Spacer(Modifier.height(16.dp))
 
@@ -109,7 +121,9 @@ fun AddHabitScreen(
                 value = targetValue,
                 onValueChange = { targetValue = it.filter { char -> char.isDigit() } },
                 label = { Text("Целевое значение (1 - для бинарных)") },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
             )
             Spacer(Modifier.height(32.dp))
 
@@ -124,6 +138,20 @@ fun AddHabitScreen(
             Text("Выберите цвет", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
             Spacer(Modifier.height(8.dp))
             ColorSelectorRow(selectedColor = selectedColor) { selectedColor = it }
+            Spacer(Modifier.height(64.dp))
+
+            ScheduleSelector(
+                selectedDays = selectedDays,
+                onDayToggle = { dayIndex ->
+                    selectedDays = if (dayIndex in selectedDays) {
+                        selectedDays - dayIndex
+                    } else {
+                        selectedDays + dayIndex
+                    }
+                }
+            )
+
+
 
             Spacer(Modifier.height(64.dp))
         }
@@ -170,22 +198,27 @@ fun IconSelectorRow(selectedIconName: String, onIconSelected: (String) -> Unit) 
         Text("Выберите иконку", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
         Spacer(Modifier.height(8.dp))
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(10.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             ICON_OPTIONS.forEach { icon ->
-                val iconName = icon.name
+                val fullName = icon.name
+                val simpleName = fullName.substringAfterLast('.')
 
                 Icon(
                     imageVector = icon,
-                    contentDescription = iconName,
-                    tint = if (iconName == selectedIconName)
+                    contentDescription = simpleName,
+                    tint = if (simpleName == selectedIconName)
                         MaterialTheme.colorScheme.primary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .size(40.dp)
-                        .clickable { onIconSelected(iconName) }
+                        .clickable { onIconSelected(simpleName) }
                 )
             }
         }
@@ -210,6 +243,44 @@ fun BottomSaveButton(onSave: () -> Unit) {
                 .height(56.dp)
         ) {
             Text("Сохранить привычку", fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+fun ScheduleSelector(selectedDays: Set<Int>, onDayToggle: (Int) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Расписание", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
+        Spacer(Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(10.dp),
+
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            WEEK_DAYS.forEachIndexed { index, dayName ->
+                val dayIndex = index + 1 // Индекс дня (1-7)
+                val isSelected = dayIndex in selectedDays
+
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .clickable { onDayToggle(dayIndex) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = dayName,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }

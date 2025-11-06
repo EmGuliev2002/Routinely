@@ -40,7 +40,7 @@ import ru.routinely.app.viewmodel.HabitViewModelFactory
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-
+import java.util.Calendar
 /**
  * Главная Activity, точка входа в приложение.
  */
@@ -86,11 +86,30 @@ fun HabitScreen(habitViewModel: HabitViewModel) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Подписываемся на состояние из ViewModel.
-    val allHabits by habitViewModel.allHabits.observeAsState(initial = emptyList())
+    val habitsForTodayList by habitViewModel.habitsForToday.observeAsState(initial = emptyList())
+
+    // --- СОРТИРОВКА: Невыполненные (false) идут перед Выполненными (true) ---
+    val sortedHabits = habitsForTodayList.sortedWith(
+        compareBy { habit ->
+            // Проверяем статус выполнения (используем ту же логику, что и в HabitItem)
+            val todayStart = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val isCompleted = habit.lastCompletedDate != null && habit.lastCompletedDate >= todayStart
+
+            // true (выполнено) будет больше, чем false (не выполнено),
+            // поэтому выполненные уйдут в конец списка.
+            isCompleted
+        }
+    )
 
     // 1. Главный экран (HomeContent)
     HomeContent(
-        habits = allHabits,
+        habits = sortedHabits,
         onHabitCheckedChange = { habit, isChecked ->
             habitViewModel.onHabitCheckedChanged(habit, isChecked)
         },

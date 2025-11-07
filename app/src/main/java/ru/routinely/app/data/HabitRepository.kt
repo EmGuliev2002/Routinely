@@ -10,6 +10,13 @@ import java.util.Calendar // Обязательный импорт для опр
  * Абстрагирует ViewModel от деталей реализации источников данных (в данном случае, Room DAO).
  * Весь доступ к данным должен осуществляться через этот класс.
  */
+
+private fun getRoutinelyDayOfWeek(calendarDay: Int): Int {
+    // Calendar: 1=Вс, 2=Пн, 3=Вт, 4=Ср, 5=Чт, 6=Пт, 7=Сб
+    // Routinely: 1=Пн, 2=Вт, ..., 6=Сб, 7=Вс
+    return if (calendarDay == Calendar.SUNDAY) 7 else calendarDay - 1
+}
+
 class HabitRepository(private val habitDao: HabitDao) {
 
     /**
@@ -25,13 +32,10 @@ class HabitRepository(private val habitDao: HabitDao) {
      * Использует логику расписания (поле type) для фильтрации.
      */
     val habitsForToday: Flow<List<Habit>> = allHabits.map { habits ->
-        // Определяем текущий день недели (1=Понедельник, 7=Воскресенье)
-        val todayIndex = Calendar.getInstance().get(Calendar.DAY_OF_WEEK).let { dayOfWeek ->
-            // Calendar: 1=Вс, 2=Пн, 3=Вт... Нам нужен формат 1=Пн, 7=Вс
-            if (dayOfWeek == Calendar.SUNDAY) 7 else dayOfWeek - 1
-        }
 
-        // Фильтруем список
+        val todayCalendarDay = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK)
+        val todayIndex = getRoutinelyDayOfWeek(todayCalendarDay) // 1=Пн, 7=Вс
+
         habits.filter { habit ->
             val type = habit.type
 
@@ -39,14 +43,18 @@ class HabitRepository(private val habitDao: HabitDao) {
                 // 1. Ежедневная привычка
                 type == "daily" -> true
 
-                // 2. Привычка по дням недели (type = "1,3,5,6,7")
-                type.contains(',') -> {
-                    // Преобразуем строку "1,3,5" в набор чисел {1, 3, 5}
-                    val selectedDays = type.split(",").mapNotNull { it.toIntOrNull() }.toSet()
+                // 2. Привычка по дням недели (один или несколько дней)
+                type.isNotEmpty() && type != "daily" -> {
+                    val selectedDays = type
+                        .split(',') // Разделяем по запятой
+                        .mapNotNull { it.trim().toIntOrNull() } // Убираем пробелы, преобразуем в Int
+                        .toSet()
+
+                    // Проверяем, есть ли текущий день в наборе
                     todayIndex in selectedDays
                 }
 
-                // 3. Другие/неизвестные типы
+                // 3. Если тип пустой или неверный, не показываем
                 else -> false
             }
         }

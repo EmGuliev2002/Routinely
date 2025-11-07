@@ -22,8 +22,8 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     /**
      * Основное состояние экрана - список всех привычек.
      */
-    val allHabits: LiveData<List<Habit>> = repository.allHabits.asLiveData()
 
+    val habitsForToday: LiveData<List<Habit>> = repository.habitsForToday.asLiveData()
     // --- Events (Public API for the UI) ---
 
     /**

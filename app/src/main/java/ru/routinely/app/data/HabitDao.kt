@@ -80,8 +80,7 @@ interface HabitDao {
     fun getTotalHabitsCount(): Flow<Int>
 
     /**
-     * Очищает всю таблицу с привычками.
-     * Используется для функции "Сброс данных" в настройках.
+     * Полностью очищает таблицу привычек. Используется для функции "Сброс данных".
      */
     @Query("DELETE FROM habits")
     suspend fun clearAllHabits()

@@ -47,7 +47,9 @@ class HabitRepository(private val habitDao: HabitDao) {
                 type.isNotEmpty() && type != "daily" -> {
                     val selectedDays = type
                         .split(',') // Разделяем по запятой
-                        .mapNotNull { it.trim().toIntOrNull() } // Убираем пробелы, преобразуем в Int
+                        .mapNotNull {
+                            it.trim().toIntOrNull()
+                        } // Убираем пробелы, преобразуем в Int
                         .toSet()
 
                     // Проверяем, есть ли текущий день в наборе
@@ -110,10 +112,8 @@ class HabitRepository(private val habitDao: HabitDao) {
 
     /**
      * Очищает все данные о привычках.
-     * Используется для функции сброса данных в настройках.
      */
     suspend fun clearAllHabits() {
-        // Убедитесь, что этот метод есть в HabitDao
-        // habitDao.clearAllHabits()
+        habitDao.clearAllHabits()
     }
 }

@@ -53,6 +53,20 @@ class HabitRepository(private val habitDao: HabitDao) {
             }
         }
     }
+    /**
+     * Получает привычки отсортированные от А до Я.
+     */
+    fun getAllHabitsSortedByNameASC(): Flow<List<Habit>> = habitDao.getAllHabitsSortedByNameASC()
+
+    /**
+     * Получает привычки отсортированные от Я до А.
+     */
+    fun getAllHabitsSortedByNameDESC(): Flow<List<Habit>> = habitDao.getAllHabitsSortedByNameDESC()
+
+    /**
+     * Получает привычки отсортированные по длинне серии.
+     */
+    fun getAllHabitsSortedByStreak(): Flow<List<Habit>> = habitDao.getAllHabitsSortedByStreak()
 
     /**
      * Функция-конвертер, которая преобразует системный индекс дня недели

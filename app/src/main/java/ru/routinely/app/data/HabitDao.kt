@@ -45,6 +45,26 @@ interface HabitDao {
     @Query("SELECT * FROM habits WHERE id = :habitId")
     fun getHabitById(habitId: Int): Flow<Habit?>
 
+    /**
+     * Получает привычки отсортированные от А до Я.
+     */
+
+    @Query("SELECT * FROM habits ORDER BY name ASC")
+    fun getAllHabitsSortedByNameASC(): Flow<List<Habit>>
+
+    /**
+     * Получает привычки отсортированные от Я до А.
+     */
+
+    @Query("SELECT * FROM habits ORDER BY name DESC")
+    fun getAllHabitsSortedByNameDESC(): Flow<List<Habit>>
+
+    /**
+     * Получает привычки отсортированные по длинне серии.
+     */
+
+    @Query("SELECT * FROM habits ORDER BY current_streak DESC")
+    fun getAllHabitsSortedByStreak(): Flow<List<Habit>>
 
     // --- Специфичные запросы для обновления и статистики ---
 

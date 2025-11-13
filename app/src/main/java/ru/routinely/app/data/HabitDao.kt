@@ -80,6 +80,13 @@ interface HabitDao {
     fun getTotalHabitsCount(): Flow<Int>
 
     /**
+     * Возвращает список всех дат выполнения для всех привычек.
+     * Необходимо для построения календаря и расчета статистики.
+     */
+    @Query("SELECT last_completed_date FROM habits WHERE last_completed_date IS NOT NULL")
+    fun getCompletionDates(): Flow<List<Long>>
+
+    /**
      * Полностью очищает таблицу привычек. Используется для функции "Сброс данных".
      */
     @Query("DELETE FROM habits")

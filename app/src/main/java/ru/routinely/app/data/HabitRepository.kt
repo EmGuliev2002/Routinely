@@ -11,12 +11,6 @@ import java.util.Calendar // Обязательный импорт для опр
  * Весь доступ к данным должен осуществляться через этот класс.
  */
 
-private fun getRoutinelyDayOfWeek(calendarDay: Int): Int {
-    // Calendar: 1=Вс, 2=Пн, 3=Вт, 4=Ср, 5=Чт, 6=Пт, 7=Сб
-    // Routinely: 1=Пн, 2=Вт, ..., 6=Сб, 7=Вс
-    return if (calendarDay == Calendar.SUNDAY) 7 else calendarDay - 1
-}
-
 class HabitRepository(private val habitDao: HabitDao) {
 
     /**
@@ -25,8 +19,6 @@ class HabitRepository(private val habitDao: HabitDao) {
      */
     val allHabits: Flow<List<Habit>> = habitDao.getAllHabits()
 
-
-    // --- НОВЫЙ РЕАЛИЗОВАННЫЙ Flow для UI ---
     /**
      * Предоставляет Flow со списком привычек, которые должны быть выполнены СЕГОДНЯ.
      * Использует логику расписания (поле type) для фильтрации.
@@ -62,13 +54,18 @@ class HabitRepository(private val habitDao: HabitDao) {
         }
     }
 
+    /**
+     * Функция-конвертер, которая преобразует системный индекс дня недели
+     * (где воскресенье = 1) во внутренний стандарт приложения (где понедельник = 1).
+     * Это нужно для правильной фильтрации ежедневных задач.
+     * */
+    private fun getRoutinelyDayOfWeek(calendarDay: Int): Int {
+        // Calendar: 1=Вс, 2=Пн, 3=Вт, 4=Ср, 5=Чт, 6=Пт, 7=Сб
+        // Routinely: 1=Пн, 2=Вт, ..., 6=Сб, 7=Вс
+        return if (calendarDay == Calendar.SUNDAY) 7 else calendarDay - 1
+    }
 
     // --- Методы для модификации данных ---
-
-    // ... (остальной код insert, update, delete, totalHabitsCount, bestStreakOverall) ...
-    // Вставь новый Flow (habitsForToday) сразу после val allHabits,
-    // а остальные методы оставь как есть.
-
 
     /**
      * Вставляет или обновляет привычку в источнике данных.
@@ -107,6 +104,10 @@ class HabitRepository(private val habitDao: HabitDao) {
      */
     val bestStreakOverall: Flow<Int?> = habitDao.getBestStreakOverall()
 
+    /**
+     * Предоставляет Flow со списком дат выполнения всех привычек.
+     */
+    val completionDates: Flow<List<Long>> = habitDao.getCompletionDates()
 
     // --- Методы для специфичных операций ---
 

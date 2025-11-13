@@ -1,27 +1,34 @@
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.FractionalThreshold
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import java.util.concurrent.TimeUnit
+import androidx.compose.material.rememberSwipeableState
+import androidx.compose.material.swipeable
 import androidx.compose.material3.*
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+import kotlin.math.roundToInt
 import ru.routinely.app.model.Habit
 
-import java.util.Calendar
-import kotlin.math.roundToInt
+
 
 fun getIconByName(iconName: String?): ImageVector {
     return when (iconName) {
@@ -34,108 +41,147 @@ fun getIconByName(iconName: String?): ImageVector {
     }
 }
 
-
+// Определения якорей для свайпа
+private enum class SwipeState {
+    IDLE, SWIPED
+}
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun HabitItem(
     habit: Habit,
+    isCompletedToday: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    cardColor: Color = Color(android.graphics.Color.parseColor(habit.color ?: "#B88EFA"))
+    onItemClick: () -> Unit
 ) {
-    // Временно проверяем, если выполнение было сегодня, сравнивая с текущей датой.
-    val isCompletedToday = remember(habit.lastCompletedDate) {
-        if (habit.lastCompletedDate == null) return@remember false
+    // 1. Настройка Swipeable
+    val swipeableState = rememberSwipeableState(initialValue = SwipeState.IDLE)
+    val density = LocalDensity.current
 
-        // Получаем метку времени начала сегодняшнего дня (00:00:00)
-        val todayStart = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
+    val swipeThreshold = 100.dp // Порог свайпа в dp
 
-        // Привычка выполнена сегодня, если lastCompletedDate >= начало сегодняшнего дня
-        habit.lastCompletedDate >= todayStart
+    val anchors = with(density) {
+        mapOf(
+            0f to SwipeState.IDLE,
+            swipeThreshold.toPx() to SwipeState.SWIPED
+        )
     }
 
-    Card(
-        modifier = modifier
+    // Обработка перехода в состояние SWIPED
+    LaunchedEffect(swipeableState.currentValue) {
+        if (swipeableState.currentValue == SwipeState.SWIPED) {
+            // Вызываем логику выполнения/отмены
+            onCheckedChange(!isCompletedToday)
+
+            // Возвращаем в IDLE с анимацией
+            swipeableState.animateTo(SwipeState.IDLE, spring(Spring.DampingRatioMediumBouncy))
+        }
+    }
+
+    // Определяем цвет иконки и ее тип
+    val cardColor = habit.color?.let { Color(android.graphics.Color.parseColor(it)) } ?: MaterialTheme.colorScheme.primary
+    val actionIcon = if (isCompletedToday) Icons.Default.Refresh else Icons.Default.Check
+
+    // Текущее смещение свайпа
+    val offsetX = swipeableState.offset.value.coerceAtLeast(0f)
+
+    // Прогресс анимации иконки
+    // Получаем порог свайпа в пикселях (Float)
+    val swipeThresholdPx = with(density) { swipeThreshold.toPx() }
+
+// Используем полученное значение для расчета прогресса
+    val swipeProgress = (offsetX / swipeThresholdPx).coerceIn(0f, 1f)
+
+    // Размер иконки (растет от 0 до 1)
+    val iconSize = 40.dp * swipeProgress.coerceAtMost(1f)
+    // Альфа иконки (появляется)
+    val iconAlpha = swipeProgress.coerceAtMost(1f)
+
+
+    Box(
+        modifier = Modifier
             .fillMaxWidth()
-            .height(90.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .then(if (isCompletedToday) Modifier.alpha(0.6f) else Modifier),
-        colors = CardDefaults.cardColors(containerColor = cardColor.copy(alpha = 0.85f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .padding(vertical = 4.dp, horizontal = 16.dp)
+            .height(IntrinsicSize.Min) // Для корректной работы fillMaxHeight() внутри
     ) {
+        // --- Фоновый слой с иконкой действия ---
         Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .matchParentSize()
+                .clip(RoundedCornerShape(12.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Start // Иконка слева
         ) {
-
-            // 1. Иконка (ИСПРАВЛЕНО)
             Icon(
-                imageVector = getIconByName(habit.icon), // <-- ИСПОЛЬЗУЕМ ФУНКЦИЮ
+                imageVector = actionIcon,
                 contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.1f))
-                    .padding(8.dp)
+                tint = cardColor, // Анимированная прозрачность
+                modifier = Modifier.size(iconSize) // Анимированный размер
             )
+        }
 
-            Spacer(Modifier.width(12.dp))
-
-            // 2. Название, стрик и прогресс
-            Column(
-                modifier = Modifier.weight(1f)
-            ) {
-                // ... (остальной код)
-                Text(
-                    text = habit.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    textDecoration = if (isCompletedToday) TextDecoration.LineThrough else null
+        // --- Передний план (сама карточка привычки) ---
+        Card(
+            modifier = Modifier
+                // 2. Применение модификатора Swipeable
+                .swipeable(
+                    state = swipeableState,
+                    anchors = anchors,
+                    orientation = Orientation.Horizontal,
+                    thresholds = { _, _ -> FractionalThreshold(0.5f) } // Срабатывание при 50%
                 )
-
-                Text(
-                    text = "${habit.currentStreak} дн. (ст.).",
-                    color = Color.White.copy(alpha = 0.8f),
-                    fontSize = 12.sp
-                )
-
-                Spacer(Modifier.height(4.dp))
-
-                // 3. Прогресс-бар
-                if (habit.targetValue > 1) {
-                    HabitProgressBar(habit, cardColor)
-                }
-            }
-
-            Spacer(Modifier.width(16.dp))
-
-            // 4. Чекбокс
-            Box(
+                .offset { androidx.compose.ui.unit.IntOffset(offsetX.roundToInt(), 0) } // Смещение карточки
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
+                .clickable(onClick = onItemClick)
+                .alpha(if (isCompletedToday) 0.6f else 1f) // Немного приглушаем выполненные
+            ,
+            shape = RoundedCornerShape(12.dp),
+            // ... (остальные параметры Card)
+        ) {
+            // ... (Вся внутренняя структура Card: Row, Column, Icon, Text, HabitProgressBar)
+            // Внутреннее содержимое HabitItem остается без изменений, за исключением Checkbox.
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .clickable {
-                        onCheckedChange(!isCompletedToday)
-                    },
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .background(cardColor)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
-                    checked = isCompletedToday,
-                    onCheckedChange = onCheckedChange,
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = Color.White,
-                        uncheckedColor = Color.White.copy(alpha = 0.5f),
-                        checkmarkColor = cardColor
-                    )
+                // Иконка привычки
+                Icon(
+                    imageVector = getIconByName(habit.icon),
+                    contentDescription = habit.name,
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
                 )
+
+                Spacer(Modifier.width(16.dp))
+
+                // Информация о привычке
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = habit.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textDecoration = if (isCompletedToday) TextDecoration.LineThrough else null
+                    )
+                    Spacer(Modifier.height(4.dp))
+
+                    // Прогресс-бар
+                    HabitProgressBar(habit = habit, color = cardColor)
+
+                    // Стрики
+                    if (habit.currentStreak > 0) {
+                        Text(
+                            text = "🔥 ${habit.currentStreak} ${if (habit.currentStreak > 1) "дней подряд" else "день"}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }

@@ -105,4 +105,11 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         return yesterday.get(Calendar.YEAR) == completionDate.get(Calendar.YEAR) &&
                 yesterday.get(Calendar.DAY_OF_YEAR) == completionDate.get(Calendar.DAY_OF_YEAR)
     }
+    /**
+     * Вызывает удаление всех данных о привычках.
+     * Используется для функции "Сброс данных" в настройках.
+     */
+    fun clearAllData() = viewModelScope.launch {
+        repository.clearAllHabits()
+    }
 }

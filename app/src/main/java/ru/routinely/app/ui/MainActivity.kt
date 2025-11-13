@@ -86,11 +86,19 @@ fun AppNavigation(habitViewModel: HabitViewModel) {
             }
             // Раздел "Статистика"
             composable(Screen.Stats.route) {
-                StatsScreen() // Передавать ViewModel пока не обязательно
+                // ИЗМЕНЕНИЕ: Теперь передаем ViewModel и onNavigateBack
+                StatsScreen(
+                    habitViewModel = habitViewModel,
+                    onNavigateBack = { navController.popBackStack() } // PopBackStack вернет на предыдущий экран (Today)
+                )
             }
             // Раздел "Настройки"
             composable(Screen.Settings.route) {
-                SettingsScreen()
+                // ИЗМЕНЕНИЕ: Теперь передаем ViewModel и onNavigateBack
+                SettingsScreen(
+                    habitViewModel = habitViewModel,
+                    onNavigateBack = { navController.popBackStack() } // PopBackStack вернет на предыдущий экран (Today)
+                )
             }
         }
     }

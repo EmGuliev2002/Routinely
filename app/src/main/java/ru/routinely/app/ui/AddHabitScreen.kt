@@ -1,5 +1,6 @@
 package ru.routinely.app.ui
 
+import android.app.TimePickerDialog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border // Нужен для ColorSelectorRow
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -23,9 +25,12 @@ import ru.routinely.app.model.Habit // Обязательный импорт д�
 import ru.routinely.app.viewmodel.HabitViewModel // Обязательный импорт для ViewModel
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.SelfImprovement
 import androidx.compose.material.icons.filled.SportsGymnastics
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import java.util.Calendar
 
 // Временные заглушки для упрощения.
 val DEFAULT_COLOR_HEX = "#B88EFA"
@@ -56,6 +61,7 @@ fun AddHabitScreen(
     var selectedIconName by rememberSaveable { mutableStateOf(ICON_OPTIONS.first().name) }
     // Временно для типа привычки
     var selectedDays by rememberSaveable { mutableStateOf(setOf(1, 2, 3, 4, 5, 6, 7)) } // По умолчанию - ежедневно (все дни)
+    var notificationTime by rememberSaveable { mutableStateOf<String?>(null) }
 
     // --- Функция для сохранения ---
     val onSaveHabit = {
@@ -73,7 +79,8 @@ fun AddHabitScreen(
                 color = selectedColor,
                 type = typeValue,
                 targetValue = targetValue.toIntOrNull() ?: 1,
-                creationDate = System.currentTimeMillis()
+                creationDate = System.currentTimeMillis(),
+                notificationTime = notificationTime
                 // Остальные поля инициализируются по умолчанию в модели
             )
             viewModel.saveHabit(newHabit)
@@ -125,20 +132,20 @@ fun AddHabitScreen(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
 
             // 3. Выбор иконки
             IconSelectorRow(
                 selectedIconName = selectedIconName,
                 onIconSelected = { selectedIconName = it }
             )
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(16.dp))
 
             // 4. Выбор цвета
             Text("Выберите цвет", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold))
             Spacer(Modifier.height(8.dp))
             ColorSelectorRow(selectedColor = selectedColor) { selectedColor = it }
-            Spacer(Modifier.height(64.dp))
+            Spacer(Modifier.height(16.dp))
 
             ScheduleSelector(
                 selectedDays = selectedDays,
@@ -151,7 +158,46 @@ fun AddHabitScreen(
                 }
             )
 
+            Spacer(Modifier.height(16.dp))
 
+            // 5. Выбор времени для уведомлений
+
+            val context = LocalContext.current
+            val calendar = Calendar.getInstance()
+
+            val timePickerDialog = TimePickerDialog(
+                context,
+                { _, hourOfDay, minute ->
+                    // Когда пользователь выбрал время, обновляем наше состояние
+                    notificationTime = String.format("%02d:%02d", hourOfDay, minute)
+                },
+                calendar.get(Calendar.HOUR_OF_DAY),
+                calendar.get(Calendar.MINUTE),
+                true // Использовать 24-часовой формат
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { timePickerDialog.show() } // Показываем диалог по клику
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Notifications, contentDescription = "Уведомление")
+                    Spacer(Modifier.width(16.dp))
+                    Text(text = notificationTime ?: "Добавить уведомление")
+                }
+
+                // Добавим кнопку "Очистить", если время выбрано
+                if (notificationTime != null) {
+                    IconButton(onClick = { notificationTime = null }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Удалить уведомление")
+                    }
+                }
+            }
 
             Spacer(Modifier.height(64.dp))
         }

@@ -1,13 +1,17 @@
 package ru.routinely.app.ui
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,6 +21,9 @@ import ru.routinely.app.data.HabitRepository
 import ru.routinely.app.ui.theme.RoutinelyTheme
 import ru.routinely.app.viewmodel.HabitViewModel
 import ru.routinely.app.viewmodel.HabitViewModelFactory
+import ru.routinely.app.utils.HabitAlarmScheduler
+import ru.routinely.app.viewmodel.NotificationEvent
+import android.Manifest
 
 /**
  * Класс, представляющий все возможные разделы приложения.
@@ -43,19 +50,53 @@ class MainActivity : ComponentActivity() {
         HabitViewModelFactory(repository)
     }
 
+    // Уведомления
+
+    private val alarmScheduler by lazy { HabitAlarmScheduler(applicationContext) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             RoutinelyTheme {
+                // НАЧАЛО БЛОКА ЗАПРОСА РАЗРЕШЕНИЙ (ДЛЯ Android 13+)
+                // Этот код необходим, чтобы на новых телефонах ваше приложение
+                // вообще могло показывать уведомления.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestPermission(),
+                        onResult = { isGranted ->
+                            // Здесь можно добавить логику, если пользователь отказал в разрешении
+                        }
+                    )
+                    LaunchedEffect(Unit) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                // КОНЕЦ БЛОКА ЗАПРОСА РАЗРЕШЕНИЙ
+
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Корневой навигационный компонент
                     AppNavigation(habitViewModel = habitViewModel)
                 }
             }
         }
+
+        // НАЧАЛО БЛОКА НАБЛЮДЕНИЯ ЗА СОБЫТИЯМИ
+        // Этот код "слушает" команды от ViewModel и передает их планировщику.
+        // Мы размещаем его здесь, в Activity, потому что он напрямую работает
+        // с системными сервисами.
+        habitViewModel.notificationEvent.observe(this) { event ->
+            // Ваша SingleLiveEvent реализация гарантирует, что этот блок
+            // сработает только один раз для каждого события.
+            when (event) {
+                is NotificationEvent.Schedule -> alarmScheduler.schedule(event.habit)
+                is NotificationEvent.Cancel -> alarmScheduler.cancel(event.habitId)
+                null -> { /* Ничего не делаем */ }
+            }
+        }
+        // КОНЕЦ БЛОКА НАБЛЮДЕНИЯ ЗА СОБЫТИЯМИ
     }
 }
 

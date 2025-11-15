@@ -36,6 +36,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,7 +49,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
 import ru.routinely.app.model.Habit
-import getIconByName
 import ru.routinely.app.viewmodel.CalendarDayState
 import ru.routinely.app.viewmodel.DayCompletion
 import ru.routinely.app.viewmodel.HabitViewModel
@@ -113,13 +113,14 @@ fun StatsHeaderSection(
     state: StatsUiState,
     onDateSelected: (LocalDate) -> Unit
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val summaryCards = listOf(
-        Triple("Всего привычек", state.totalHabitsCount.toString(), colorScheme.primary),
-        Triple("Лучшая серия", state.bestStreakOverall.toString(), colorScheme.tertiary),
-        Triple("Неделя", "${state.weeklyCompletionPercentage}%", colorScheme.secondary),
-        Triple("Месяц", "${state.monthlyCompletionPercentage}%", colorScheme.primary.copy(alpha = 0.7f))
-    )
+    val summaryCards = remember(state.totalHabitsCount, state.bestStreakOverall, state.weeklyCompletionPercentage, state.monthlyCompletionPercentage) {
+        listOf(
+            Triple("Всего привычек", state.totalHabitsCount.toString(), MaterialTheme.colorScheme.primary),
+            Triple("Лучшая серия", state.bestStreakOverall.toString(), MaterialTheme.colorScheme.tertiary),
+            Triple("Неделя", "${state.weeklyCompletionPercentage}%", MaterialTheme.colorScheme.secondary),
+            Triple("Месяц", "${state.monthlyCompletionPercentage}%", MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+        )
+    }
 
     Card(
         modifier = Modifier

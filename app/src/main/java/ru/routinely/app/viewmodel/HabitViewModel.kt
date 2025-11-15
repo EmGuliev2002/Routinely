@@ -18,9 +18,18 @@ import ru.routinely.app.data.HabitRepository
 import ru.routinely.app.model.Habit
 import ru.routinely.app.utils.HabitFilter
 import ru.routinely.app.utils.SortOrder
+import java.time.DayOfWeek
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.TemporalAdjusters
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 // Вспомогательные классы
 
@@ -64,6 +73,30 @@ data class HabitUiState(
     val habitFilter: HabitFilter = HabitFilter.TODAY,
     val categoryFilter: String? = null,
     val isNameSortAsc: Boolean = true
+)
+
+data class CalendarDayState(
+    val date: LocalDate,
+    val isCompleted: Boolean,
+    val isSelected: Boolean
+)
+
+data class DayCompletion(
+    val date: LocalDate,
+    val completionRatio: Float
+)
+
+data class StatsUiState(
+    val isLoading: Boolean = true,
+    val totalHabitsCount: Int = 0,
+    val bestStreakOverall: Int = 0,
+    val weeklyCompletionPercentage: Int = 0,
+    val monthlyCompletionPercentage: Int = 0,
+    val calendarDays: List<CalendarDayState> = emptyList(),
+    val weekRangeLabel: String = "",
+    val selectedDate: LocalDate = LocalDate.now(),
+    val selectedDateHabits: List<Habit> = emptyList(),
+    val weeklyTrend: List<DayCompletion> = emptyList()
 )
 
 // Основной класс ViewModel
@@ -146,6 +179,61 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     val bestStreakOverall: LiveData<Int?> = repository.bestStreakOverall.asLiveData()
     val completionDates: LiveData<List<Long>> = repository.completionDates.asLiveData()
 
+    private val _selectedStatsDate = MutableStateFlow(LocalDate.now())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val statsUiState: StateFlow<StatsUiState> = combine(
+        repository.totalHabitsCount,
+        repository.bestStreakOverall,
+        repository.completionDates,
+        repository.allHabits,
+        _selectedStatsDate
+    ) { totalCount, bestStreak, completionDates, habits, selectedDate ->
+        val completionDatesSet = completionDates.map { it.toLocalDate() }.toSet()
+        val now = LocalDate.now()
+        val weeklyPercentage = calculateCompletionPercentage(
+            completionDatesSet,
+            startDate = now.minusDays(6),
+            endDate = now
+        )
+        val currentMonthStart = now.withDayOfMonth(1)
+        val monthlyPercentage = calculateCompletionPercentage(
+            completionDatesSet,
+            startDate = currentMonthStart,
+            endDate = currentMonthStart.withDayOfMonth(YearMonth.from(now).lengthOfMonth())
+        )
+
+        val calendarDays = buildWeekCalendar(completionDatesSet, selectedDate)
+        val weekRangeLabel = formatWeekRange(selectedDate)
+        val habitsByDate = habits
+            .mapNotNull { habit ->
+                habit.lastCompletedDate?.let { timestamp ->
+                    timestamp.toLocalDate() to habit
+                }
+            }
+            .groupBy({ it.first }, { it.second })
+
+        val selectedHabits = habitsByDate[selectedDate].orEmpty()
+        val weeklyTrend = buildWeeklyTrend(habitsByDate, totalCount, now)
+
+        StatsUiState(
+            isLoading = false,
+            totalHabitsCount = totalCount,
+            bestStreakOverall = (bestStreak ?: 0),
+            weeklyCompletionPercentage = weeklyPercentage,
+            monthlyCompletionPercentage = monthlyPercentage,
+            calendarDays = calendarDays,
+            weekRangeLabel = weekRangeLabel,
+            selectedDate = selectedDate,
+            selectedDateHabits = selectedHabits,
+            weeklyTrend = weeklyTrend
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000L),
+        initialValue = StatsUiState()
+    )
+
     // События для UI
     private val _notificationEvent = SingleLiveEvent<NotificationEvent>()
     val notificationEvent: LiveData<NotificationEvent> = _notificationEvent
@@ -194,6 +282,10 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
 
     fun clearAllData() = viewModelScope.launch {
         repository.clearAllHabits()
+    }
+
+    fun onStatsDateSelected(date: LocalDate) {
+        _selectedStatsDate.value = date
     }
 
     // Private Business Logic
@@ -313,5 +405,62 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         val completionDate = Calendar.getInstance().apply { timeInMillis = timestamp }
         return yesterday.get(Calendar.YEAR) == completionDate.get(Calendar.YEAR) &&
                 yesterday.get(Calendar.DAY_OF_YEAR) == completionDate.get(Calendar.DAY_OF_YEAR)
+    }
+
+    private fun Long.toLocalDate(): LocalDate {
+        return Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
+    }
+
+    private fun calculateCompletionPercentage(
+        completionDates: Set<LocalDate>,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): Int {
+        if (startDate > endDate) return 0
+        val totalDays = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1
+        if (totalDays <= 0) return 0
+
+        val completedDaysCount = (0 until totalDays).count { offset ->
+            val day = startDate.plusDays(offset.toLong())
+            day in completionDates
+        }
+        val percentage = (completedDaysCount.toFloat() / totalDays.toFloat()) * 100
+        return percentage.roundToInt().coerceIn(0, 100)
+    }
+
+    private fun buildWeekCalendar(
+        completionDates: Set<LocalDate>,
+        selectedDate: LocalDate
+    ): List<CalendarDayState> {
+        val startOfWeek = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        return (0 until 7).map { offset ->
+            val day = startOfWeek.plusDays(offset.toLong())
+            CalendarDayState(
+                date = day,
+                isCompleted = day in completionDates,
+                isSelected = day == selectedDate
+            )
+        }
+    }
+
+    private fun formatWeekRange(selectedDate: LocalDate): String {
+        val formatter = DateTimeFormatter.ofPattern("dd.MM")
+        val startOfWeek = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val endOfWeek = selectedDate.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+        return "${startOfWeek.format(formatter)}–${endOfWeek.format(formatter)}"
+    }
+
+    private fun buildWeeklyTrend(
+        habitsByDate: Map<LocalDate, List<Habit>>,
+        totalHabitsCount: Int,
+        referenceDate: LocalDate
+    ): List<DayCompletion> {
+        val startDate = referenceDate.minusDays(6)
+        return (0 until 7).map { offset ->
+            val day = startDate.plusDays(offset.toLong())
+            val completedCount = habitsByDate[day]?.size ?: 0
+            val ratio = if (totalHabitsCount == 0) 0f else completedCount.toFloat() / totalHabitsCount.toFloat()
+            DayCompletion(date = day, completionRatio = ratio.coerceIn(0f, 1f))
+        }
     }
 }

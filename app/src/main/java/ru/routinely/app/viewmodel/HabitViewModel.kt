@@ -238,7 +238,8 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
 
         // --- 3. ЛОГИКА ДАТЫ И СТРИКОВ ---
 
-
+        var newCurrentStreak = habit.currentStreak
+        var newBestStreak = habit.bestStreak
         var newLastCompletedDate: Long? = habit.lastCompletedDate
 
 
@@ -246,7 +247,8 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
             // A) Стрик начинается (первая активность сегодня, ранее не было).
             // Проверяем, было ли выполнение вчера, используя lastCompletedDate из DB, а не локальный.
             val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-
+            newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
+            newBestStreak = max(newCurrentStreak, habit.bestStreak)
             newLastCompletedDate = today
 
         } else if (wasActiveToday && newLastCompletedDate == null) {
@@ -254,7 +256,7 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
             newLastCompletedDate = today
         } else if (wasResetToZero) {
             // B) Активность сброшена в 0 (Отмена последнего действия)
-
+            newCurrentStreak = 0 // Сброс текущего стрика
             newLastCompletedDate = null
         }
 
@@ -268,6 +270,8 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         // --- 4. ВОЗВРАТ ОБНОВЛЕННОЙ ПРИВЫЧКИ ---
         return habit.copy(
             lastCompletedDate = newLastCompletedDate,
+            currentStreak = newCurrentStreak,
+            bestStreak = newBestStreak,
             currentValue = newCurrentValue
         )
     }

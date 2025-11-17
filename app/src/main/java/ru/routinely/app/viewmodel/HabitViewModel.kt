@@ -238,8 +238,7 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
 
         // --- 3. ЛОГИКА ДАТЫ И СТРИКОВ ---
 
-        var newCurrentStreak = habit.currentStreak
-        var newBestStreak = habit.bestStreak
+
         var newLastCompletedDate: Long? = habit.lastCompletedDate
 
 
@@ -247,8 +246,7 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
             // A) Стрик начинается (первая активность сегодня, ранее не было).
             // Проверяем, было ли выполнение вчера, используя lastCompletedDate из DB, а не локальный.
             val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-            newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
-            newBestStreak = max(newCurrentStreak, habit.bestStreak)
+
             newLastCompletedDate = today
 
         } else if (wasActiveToday && newLastCompletedDate == null) {
@@ -256,7 +254,7 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
             newLastCompletedDate = today
         } else if (wasResetToZero) {
             // B) Активность сброшена в 0 (Отмена последнего действия)
-            newCurrentStreak = 0 // Сброс текущего стрика
+
             newLastCompletedDate = null
         }
 
@@ -270,33 +268,9 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         // --- 4. ВОЗВРАТ ОБНОВЛЕННОЙ ПРИВЫЧКИ ---
         return habit.copy(
             lastCompletedDate = newLastCompletedDate,
-            currentStreak = newCurrentStreak,
-            bestStreak = newBestStreak,
             currentValue = newCurrentValue
         )
     }
-
-    /*private fun calculateNewStreakState(habit: Habit, isCompleted: Boolean): Habit {
-        if (isCompleted) {
-                val today = System.currentTimeMillis()
-                val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-                val newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
-                val newBestStreak = max(newCurrentStreak, habit.bestStreak)
-            return habit.copy(
-                lastCompletedDate = today,
-                currentStreak = newCurrentStreak,
-                bestStreak = newBestStreak,
-                currentValue = habit.targetValue
-            )
-        } else {
-            val wasCompletedToday = isCompletedToday(habit)
-            return habit.copy(
-                lastCompletedDate = null,
-                currentStreak = if (wasCompletedToday) habit.currentStreak - 1 else habit.currentStreak,
-                currentValue = 0
-            )
-        }
-    }*/
 
     private fun isCompletedToday(habit: Habit): Boolean {
         val todayStart = Calendar.getInstance().apply {

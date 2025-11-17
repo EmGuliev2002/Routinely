@@ -217,25 +217,63 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     }
 
     private fun calculateNewStreakState(habit: Habit, isCompleted: Boolean): Habit {
-        if (isCompleted) {
-            val today = System.currentTimeMillis()
-            val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-            val newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
-            val newBestStreak = max(newCurrentStreak, habit.bestStreak)
-            return habit.copy(
-                lastCompletedDate = today,
-                currentStreak = newCurrentStreak,
-                bestStreak = newBestStreak,
-                currentValue = habit.targetValue
-            )
+        val today = Calendar.getInstance().timeInMillis
+
+        // --- 1. РАСЧЕТ НОВОГО currentValue (+1 или -1) ---
+        val newCurrentValue = if (isCompleted) {
+            // ИНКРЕМЕНТ: +1, не превышая targetValue
+            (habit.currentValue + 1).coerceAtMost(habit.targetValue)
         } else {
-            val wasCompletedToday = isCompletedToday(habit)
-            return habit.copy(
-                lastCompletedDate = null,
-                currentStreak = if (wasCompletedToday) habit.currentStreak - 1 else habit.currentStreak,
-                currentValue = 0
-            )
+            // ДЕКРЕМЕНТ: -1, не опускаясь ниже 0
+            (habit.currentValue - 1).coerceAtLeast(0)
         }
+
+        // --- 2. ОПРЕДЕЛЕНИЕ СТАТУСА АКТИВНОСТИ ---
+        // Активность есть, если newCurrentValue > 0. Этот флаг теперь управляет стриком.
+        val wasActiveToday = newCurrentValue > 0
+
+        // Активность была, но теперь сброшена в 0 (для отмены)
+        val wasResetToZero = !isCompleted && habit.currentValue > 0 && newCurrentValue == 0
+
+
+        // --- 3. ЛОГИКА ДАТЫ И СТРИКОВ ---
+
+        var newCurrentStreak = habit.currentStreak
+        var newBestStreak = habit.bestStreak
+        var newLastCompletedDate: Long? = habit.lastCompletedDate
+
+
+        if (wasActiveToday && habit.lastCompletedDate == null) {
+            // A) Стрик начинается (первая активность сегодня, ранее не было).
+            // Проверяем, было ли выполнение вчера, используя lastCompletedDate из DB, а не локальный.
+            val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
+            newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
+            newBestStreak = max(newCurrentStreak, habit.bestStreak)
+            newLastCompletedDate = today
+
+        } else if (wasActiveToday && newLastCompletedDate == null) {
+            // Активность есть (newCurrentValue > 0), но дата сброшена (новая привычка или reset)
+            newLastCompletedDate = today
+        } else if (wasResetToZero) {
+            // B) Активность сброшена в 0 (Отмена последнего действия)
+            newCurrentStreak = 0 // Сброс текущего стрика
+            newLastCompletedDate = null
+        }
+
+        // ВАЖНО: Если lastCompletedDate уже установлен на сегодня, мы не меняем стрик
+        // при добавлении прогресса (+2, +3 и т.д.), но обновляем lastCompletedDate,
+        // чтобы TodayScreen корректно отображал статус.
+        if (newLastCompletedDate == null && wasActiveToday) {
+            newLastCompletedDate = today
+        }
+
+        // --- 4. ВОЗВРАТ ОБНОВЛЕННОЙ ПРИВЫЧКИ ---
+        return habit.copy(
+            lastCompletedDate = newLastCompletedDate,
+            currentStreak = newCurrentStreak,
+            bestStreak = newBestStreak,
+            currentValue = newCurrentValue
+        )
     }
 
     private fun isCompletedToday(habit: Habit): Boolean {

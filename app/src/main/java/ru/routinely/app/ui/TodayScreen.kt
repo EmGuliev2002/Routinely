@@ -135,11 +135,16 @@ fun HomeContent(
                 }
             } else {
                 items(habits, key = { it.id }) { habit ->
+                    val isCompletedTodayVisually = habit.currentValue > 0
+
                     HabitItem(
                         habit = habit,
+                        // ** ДОБАВЛЯЕМ isCompletedToday, используя вычисленное значение **
+                        isCompletedToday = isCompletedTodayVisually,
                         onCheckedChange = { isChecked ->
                             onHabitCheckedChange(habit, isChecked)
-                        }
+                        },
+                        onItemClick = { /* ... */ }
                     )
                 }
             }

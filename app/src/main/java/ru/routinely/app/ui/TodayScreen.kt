@@ -39,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import HabitItem
 import ru.routinely.app.model.Habit
 import ru.routinely.app.utils.HabitFilter
 import ru.routinely.app.utils.SortOrder

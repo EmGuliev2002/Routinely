@@ -20,7 +20,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -241,7 +240,7 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
                 )
             } else {
                 habits.forEachIndexed { index, habit ->
-                    StatsHabitListItem(habit)
+                    StatsHabitListItem(habit = habit, selectedDate = selectedDate)
                     if (index < habits.lastIndex) {
                         Divider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                     }
@@ -253,16 +252,23 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
 
 
 @Composable
-fun StatsHabitListItem(habit: Habit) {
-    val isCompleted = habit.lastCompletedDate != null
+fun StatsHabitListItem(habit: Habit, selectedDate: LocalDate) {
     val streakValue = if (habit.currentStreak > 0) "${habit.currentStreak} дн." else "0 дн."
-    val completionTime = habit.lastCompletedDate?.let {
+    val completionDate = habit.lastCompletedDate?.let {
+        java.time.Instant.ofEpochMilli(it)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalDate()
+    }
+    val isCompletedOnSelectedDate = completionDate == selectedDate
+    val completionTime = if (isCompletedOnSelectedDate && habit.lastCompletedDate != null) {
         DateTimeFormatter.ofPattern("HH:mm").format(
-            java.time.Instant.ofEpochMilli(it)
+            java.time.Instant.ofEpochMilli(habit.lastCompletedDate)
                 .atZone(java.time.ZoneId.systemDefault())
                 .toLocalTime()
         )
-    } ?: "--:--"
+    } else {
+        "--:--"
+    }
 
     Row(
         modifier = Modifier
@@ -295,9 +301,9 @@ fun StatsHabitListItem(habit: Habit) {
 
         // 3. Статус выполнения
         Icon(
-            imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle,
-            contentDescription = if (isCompleted) "Выполнено" else "Не выполнено",
-            tint = if (isCompleted) Color(0xFFC8A2C8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = "Выполнено",
+            tint = Color(0xFFC8A2C8),
             modifier = Modifier.size(20.dp)
         )
 

@@ -3,7 +3,6 @@ package ru.routinely.app.viewmodel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,6 +26,7 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import java.time.temporal.ChronoUnit
 import java.util.Calendar
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -175,51 +175,40 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
 
 
     // Состояния для экрана "Статистика"
-    val totalHabitsCount: LiveData<Int> = repository.totalHabitsCount.asLiveData()
-    val bestStreakOverall: LiveData<Int?> = repository.bestStreakOverall.asLiveData()
-    val completionDates: LiveData<List<Long>> = repository.completionDates.asLiveData()
-
     private val _selectedStatsDate = MutableStateFlow(LocalDate.now())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val statsUiState: StateFlow<StatsUiState> = combine(
-        repository.totalHabitsCount,
-        repository.bestStreakOverall,
-        repository.completionDates,
         repository.allHabits,
         _selectedStatsDate
-    ) { totalCount, bestStreak, completionDates, habits, selectedDate ->
-        val completionDatesSet = completionDates.map { it.toLocalDate() }.toSet()
+    ) { habits, selectedDate ->
+        val completionHistory = buildCompletionHistory(habits)
+        val completionDatesSet = completionHistory.keys
         val now = LocalDate.now()
         val weeklyPercentage = calculateCompletionPercentage(
-            completionDatesSet,
+            habits = habits,
+            completionHistory = completionHistory,
             startDate = now.minusDays(6),
             endDate = now
         )
         val currentMonthStart = now.withDayOfMonth(1)
         val monthlyPercentage = calculateCompletionPercentage(
-            completionDatesSet,
+            habits = habits,
+            completionHistory = completionHistory,
             startDate = currentMonthStart,
             endDate = currentMonthStart.withDayOfMonth(YearMonth.from(now).lengthOfMonth())
         )
 
         val calendarDays = buildWeekCalendar(completionDatesSet, selectedDate)
         val weekRangeLabel = formatWeekRange(selectedDate)
-        val habitsByDate = habits
-            .mapNotNull { habit ->
-                habit.lastCompletedDate?.let { timestamp ->
-                    timestamp.toLocalDate() to habit
-                }
-            }
-            .groupBy({ it.first }, { it.second })
-
-        val selectedHabits = habitsByDate[selectedDate].orEmpty()
-        val weeklyTrend = buildWeeklyTrend(habitsByDate, totalCount, now)
+        val selectedHabits = completionHistory[selectedDate].orEmpty()
+        val weeklyTrend = buildWeeklyTrend(habits, completionHistory, now)
+        val bestCurrentStreak = habits.maxOfOrNull { it.currentStreak } ?: 0
 
         StatsUiState(
             isLoading = false,
-            totalHabitsCount = totalCount,
-            bestStreakOverall = (bestStreak ?: 0),
+            totalHabitsCount = habits.size,
+            bestStreakOverall = bestCurrentStreak,
             weeklyCompletionPercentage = weeklyPercentage,
             monthlyCompletionPercentage = monthlyPercentage,
             calendarDays = calendarDays,
@@ -334,29 +323,20 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         var newBestStreak = habit.bestStreak
         var newLastCompletedDate: Long? = habit.lastCompletedDate
 
-
-        if (wasActiveToday && habit.lastCompletedDate == null) {
-            // A) Стрик начинается (первая активность сегодня, ранее не было).
-            // Проверяем, было ли выполнение вчера, используя lastCompletedDate из DB, а не локальный.
+        if (wasActiveToday) {
             val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-            newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
-            newBestStreak = max(newCurrentStreak, habit.bestStreak)
-            newLastCompletedDate = today
+            val wasCompletedToday = habit.lastCompletedDate?.let { isSameDay(it) } ?: false
 
-        } else if (wasActiveToday && newLastCompletedDate == null) {
-            // Активность есть (newCurrentValue > 0), но дата сброшена (новая привычка или reset)
+            if (!wasCompletedToday) {
+                newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
+            }
+
+            newBestStreak = max(newCurrentStreak, habit.bestStreak)
             newLastCompletedDate = today
         } else if (wasResetToZero) {
             // B) Активность сброшена в 0 (Отмена последнего действия)
             newCurrentStreak = 0 // Сброс текущего стрика
             newLastCompletedDate = null
-        }
-
-        // ВАЖНО: Если lastCompletedDate уже установлен на сегодня, мы не меняем стрик
-        // при добавлении прогресса (+2, +3 и т.д.), но обновляем lastCompletedDate,
-        // чтобы TodayScreen корректно отображал статус.
-        if (newLastCompletedDate == null && wasActiveToday) {
-            newLastCompletedDate = today
         }
 
         // --- 4. ВОЗВРАТ ОБНОВЛЕННОЙ ПРИВЫЧКИ ---
@@ -407,12 +387,20 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
                 yesterday.get(Calendar.DAY_OF_YEAR) == completionDate.get(Calendar.DAY_OF_YEAR)
     }
 
+    private fun isSameDay(timestamp: Long): Boolean {
+        val today = Calendar.getInstance()
+        val completionDate = Calendar.getInstance().apply { timeInMillis = timestamp }
+        return today.get(Calendar.YEAR) == completionDate.get(Calendar.YEAR) &&
+                today.get(Calendar.DAY_OF_YEAR) == completionDate.get(Calendar.DAY_OF_YEAR)
+    }
+
     private fun Long.toLocalDate(): LocalDate {
         return Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
     }
 
     private fun calculateCompletionPercentage(
-        completionDates: Set<LocalDate>,
+        habits: List<Habit>,
+        completionHistory: Map<LocalDate, List<Habit>>,
         startDate: LocalDate,
         endDate: LocalDate
     ): Int {
@@ -420,11 +408,20 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         val totalDays = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1
         if (totalDays <= 0) return 0
 
-        val completedDaysCount = (0 until totalDays).count { offset ->
+        var totalScheduled = 0
+        var totalCompleted = 0
+
+        (0 until totalDays).forEach { offset ->
             val day = startDate.plusDays(offset.toLong())
-            day in completionDates
+            val scheduledForDay = habits.count { it.isScheduledFor(day) }
+            val completedForDay = completionHistory[day]?.size ?: 0
+            totalScheduled += scheduledForDay
+            totalCompleted += completedForDay.coerceAtMost(scheduledForDay)
         }
-        val percentage = (completedDaysCount.toFloat() / totalDays.toFloat()) * 100
+
+        if (totalScheduled == 0) return 0
+
+        val percentage = (totalCompleted.toFloat() / totalScheduled.toFloat()) * 100
         return percentage.roundToInt().coerceIn(0, 100)
     }
 
@@ -451,16 +448,47 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     }
 
     private fun buildWeeklyTrend(
-        habitsByDate: Map<LocalDate, List<Habit>>,
-        totalHabitsCount: Int,
+        habits: List<Habit>,
+        completionHistory: Map<LocalDate, List<Habit>>,
         referenceDate: LocalDate
     ): List<DayCompletion> {
         val startDate = referenceDate.minusDays(6)
         return (0 until 7).map { offset ->
             val day = startDate.plusDays(offset.toLong())
-            val completedCount = habitsByDate[day]?.size ?: 0
-            val ratio = if (totalHabitsCount == 0) 0f else completedCount.toFloat() / totalHabitsCount.toFloat()
+            val scheduledCount = habits.count { it.isScheduledFor(day) }
+            val completedCount = completionHistory[day]?.size ?: 0
+            val ratio = if (scheduledCount == 0) 0f else completedCount.coerceAtMost(scheduledCount).toFloat() / scheduledCount.toFloat()
             DayCompletion(date = day, completionRatio = ratio.coerceIn(0f, 1f))
+        }
+    }
+
+    private fun buildCompletionHistory(habits: List<Habit>): Map<LocalDate, List<Habit>> {
+        val history = mutableMapOf<LocalDate, MutableList<Habit>>()
+        habits.forEach { habit ->
+            val lastCompletionMillis = habit.lastCompletedDate ?: return@forEach
+            val lastCompletionDate = lastCompletionMillis.toLocalDate()
+            val streakLength = habit.currentStreak.coerceAtLeast(0)
+            if (streakLength == 0) return@forEach
+
+            (0 until streakLength).forEach { offset ->
+                val day = lastCompletionDate.minusDays(offset.toLong())
+                history.getOrPut(day) { mutableListOf() }.add(habit)
+            }
+        }
+        return history
+    }
+
+    private fun Habit.isScheduledFor(date: LocalDate): Boolean {
+        val typeValue = type.lowercase(Locale.getDefault())
+        return when {
+            typeValue == "daily" -> true
+            typeValue.isNotBlank() -> {
+                val selectedDays = type.split(',')
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .toSet()
+                date.dayOfWeek.value in selectedDays
+            }
+            else -> false
         }
     }
 }

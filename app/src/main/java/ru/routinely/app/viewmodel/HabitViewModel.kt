@@ -3,7 +3,6 @@ package ru.routinely.app.viewmodel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,30 +14,29 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.routinely.app.data.HabitRepository
+import ru.routinely.app.data.UserPreferences
 import ru.routinely.app.data.UserPreferencesRepository
 import ru.routinely.app.model.Habit
+import ru.routinely.app.model.HabitCompletion
 import ru.routinely.app.utils.HabitFilter
 import ru.routinely.app.utils.SortOrder
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
-import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.Calendar
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
-import ru.routinely.app.model.HabitCompletion
 
-// Вспомогательные классы
+// --- Вспомогательные классы и события ---
 
 /**
- * Вспомогательный класс для событий, которые должны быть
- * обработаны только один раз,
- * например, для показа Snackbar или планирования уведомлений.
+ * Класс для событий, которые должны быть обработаны только один раз (LiveEvent).
+ * Используется для навигации или показа уведомлений/Snackbar.
  */
 class SingleLiveEvent<T> : MutableLiveData<T>() {
     private val pending = AtomicBoolean(false)
@@ -58,16 +56,16 @@ class SingleLiveEvent<T> : MutableLiveData<T>() {
 }
 
 /**
- * Запечатанный класс для представления событий, связанных с
- * уведомлениями.
- * Используется для передачи команд из ViewModel в UI-слой.
+ * События, связанные с уведомлениями, отправляемые в UI (MainActivity).
  */
 sealed class NotificationEvent {
     data class Schedule(val habit: Habit) : NotificationEvent()
     data class Cancel(val habitId: Int) : NotificationEvent()
 }
 
-// Модель, представляющая полное состояние UI для главного экрана
+/**
+ * Состояние главного экрана (список привычек).
+ */
 data class HabitUiState(
     val habits: List<Habit> = emptyList(),
     val categories: List<String> = emptyList(),
@@ -77,17 +75,26 @@ data class HabitUiState(
     val isNameSortAsc: Boolean = true
 )
 
+/**
+ * Состояние дня в календаре статистики.
+ */
 data class CalendarDayState(
     val date: LocalDate,
     val isCompleted: Boolean,
     val isSelected: Boolean
 )
 
+/**
+ * Модель для графика выполнения.
+ */
 data class DayCompletion(
     val date: LocalDate,
     val completionRatio: Float
 )
 
+/**
+ * Полное состояние экрана статистики.
+ */
 data class StatsUiState(
     val isLoading: Boolean = true,
     val totalHabitsCount: Int = 0,
@@ -101,24 +108,26 @@ data class StatsUiState(
     val weeklyTrend: List<DayCompletion> = emptyList()
 )
 
-// Основной класс ViewModel
+// --- ViewModel ---
 
 /**
- * ViewModel для управления данными привычек.
+ * ViewModel для управления данными привычек и бизнес-логикой приложения.
  */
 class HabitViewModel(
     private val repository: HabitRepository,
-    private val userPrefsRepository: UserPreferencesRepository
+    val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
-    // Состояния для UI
-
+    // Состояния фильтрации и сортировки
     private val _sortOrder = MutableStateFlow(SortOrder.BY_DATE)
     private val _habitFilter = MutableStateFlow(HabitFilter.TODAY)
     private val _categoryFilter = MutableStateFlow<String?>(null)
     private val _isNameSortAsc = MutableStateFlow(true)
 
-    // Внутренний класс для группировки всех настроек пользователя
+    // Выбранная дата на экране статистики
+    private val _selectedStatsDate = MutableStateFlow(LocalDate.now())
+
+    // Внутренний класс для группировки настроек отображения
     private data class UserOptions(
         val sortOrder: SortOrder,
         val habitFilter: HabitFilter,
@@ -126,43 +135,41 @@ class HabitViewModel(
         val isNameSortAsc: Boolean
     )
 
-    // 1. Создаем единый поток, который будет реагировать на ЛЮБОЕ изменение настроек
     private val userOptionsFlow = combine(
         _sortOrder, _habitFilter, _categoryFilter, _isNameSortAsc
     ) { sort, filter, category, isAsc ->
         UserOptions(sort, filter, category, isAsc)
     }
 
-    // 2. Основной поток состояния UI
+    // --- 1. Основной поток состояния UI (Список привычек) ---
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<HabitUiState> = userOptionsFlow.flatMapLatest { options ->
-        // flatMapLatest перезапускает этот блок каждый раз, когда меняются `options`.
-        // Это позволяет нам выбрать правильный запрос к БД.
+        // Выбираем поток данных в зависимости от сортировки
         val sortedHabitsFlow = when (options.sortOrder) {
             SortOrder.BY_DATE -> repository.allHabits
             SortOrder.BY_STREAK -> repository.getAllHabitsSortedByStreak()
-            SortOrder.BY_NAME -> if (options.isNameSortAsc) repository.getAllHabitsSortedByNameASC() else repository.getAllHabitsSortedByNameDESC()
+            SortOrder.BY_NAME -> if (options.isNameSortAsc)
+                repository.getAllHabitsSortedByNameASC() else repository.getAllHabitsSortedByNameDESC()
         }
 
-        // 3. Комбинируем отсортированные данные с потоком категорий
+        // Комбинируем список привычек с категориями
         combine(
             sortedHabitsFlow,
-            repository.allHabits.map { it.mapNotNull { habit -> habit.category }.distinct().sorted() }
+            repository.allHabits.map { list -> list.mapNotNull { it.category }.distinct().sorted() }
         ) { habits, allCategories ->
-            // 4. Применяем фильтры (это уже происходит в памяти, без запроса к БД)
+
+            // Применяем фильтры в памяти
             val filteredHabits = when (options.habitFilter) {
                 HabitFilter.TODAY -> filterForToday(habits)
                 HabitFilter.ALL -> habits
                 HabitFilter.UNCOMPLETED -> habits.filter { !isCompletedToday(it) }
-            }.let { filteredList ->
+            }.let { list ->
+                // Дополнительный фильтр по категории
                 if (options.categoryFilter != null) {
-                    filteredList.filter { it.category == options.categoryFilter }
-                } else {
-                    filteredList
-                }
+                    list.filter { it.category == options.categoryFilter }
+                } else list
             }
 
-            // 5. Формируем итоговое состояние UI
             HabitUiState(
                 habits = filteredHabits,
                 categories = allCategories,
@@ -178,7 +185,7 @@ class HabitViewModel(
         initialValue = HabitUiState()
     )
 
-    // Добавляем этот поток для экрана TodayScreen
+    // Поток всех выполнений (используется для истории)
     val completions: StateFlow<List<HabitCompletion>> = repository.allCompletions
         .stateIn(
             scope = viewModelScope,
@@ -186,74 +193,74 @@ class HabitViewModel(
             initialValue = emptyList()
         )
 
-    // НАСТРОЙКИ
-    val userPreferences = userPrefsRepository.userPreferencesFlow
+    // Поток настроек пользователя (тема, уведомления)
+    val userPreferences = userPreferencesRepository.userPreferencesFlow
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ru.routinely.app.data.UserPreferences(false, true)
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = UserPreferences(isDarkTheme = false, notificationsEnabled = true)
         )
 
-    fun toggleTheme(isDark: Boolean) = viewModelScope.launch {
-        userPrefsRepository.setDarkTheme(isDark)
-    }
-
-    fun toggleNotifications(isEnabled: Boolean) = viewModelScope.launch {
-        userPrefsRepository.setNotificationsEnabled(isEnabled)
-    }
-
-    // Состояния для экрана "Статистика"
-    val totalHabitsCount: LiveData<Int> = repository.totalHabitsCount.asLiveData()
-    val bestStreakOverall: LiveData<Int?> = repository.bestStreakOverall.asLiveData()
-    val completionDates: LiveData<List<Long>> = repository.completionDates.asLiveData()
-
-    private val _selectedStatsDate = MutableStateFlow(LocalDate.now())
-
-    @OptIn(ExperimentalCoroutinesApi::class)
+    // --- 2. Состояние экрана статистики ---
     val statsUiState: StateFlow<StatsUiState> = combine(
         repository.totalHabitsCount,
         repository.bestStreakOverall,
-        repository.completionDates,
+        repository.allCompletions,
         repository.allHabits,
         _selectedStatsDate
-    ) { totalCount, bestStreak, completionDates, habits, selectedDate ->
-        val completionDatesSet = completionDates.map { it.toLocalDate() }.toSet()
+    ) { totalCount, bestStreak, allCompletions, habits, selectedDate ->
+
         val now = LocalDate.now()
-        val weeklyPercentage = calculateCompletionPercentage(
-            completionDatesSet,
+
+        // Расчет процентов за неделю (учитывает дату создания и расписание)
+        val weeklyPercentage = calculateAccuratePercentage(
+            habits = habits,
+            completions = allCompletions,
             startDate = now.minusDays(6),
             endDate = now
         )
+
+        // Расчет процентов за текущий месяц
         val currentMonthStart = now.withDayOfMonth(1)
-        val monthlyPercentage = calculateCompletionPercentage(
-            completionDatesSet,
+        val monthlyPercentage = calculateAccuratePercentage(
+            habits = habits,
+            completions = allCompletions,
             startDate = currentMonthStart,
-            endDate = currentMonthStart.withDayOfMonth(YearMonth.from(now).lengthOfMonth())
+            endDate = now
         )
+
+        // Формирование данных для календаря
+        val completionDatesSet = allCompletions.map {
+            Instant.ofEpochMilli(it.completionDay)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+        }.toSet()
 
         val calendarDays = buildWeekCalendar(completionDatesSet, selectedDate)
         val weekRangeLabel = formatWeekRange(selectedDate)
-        val habitsByDate = habits
-            .mapNotNull { habit ->
-                habit.lastCompletedDate?.let { timestamp ->
-                    timestamp.toLocalDate() to habit
-                }
-            }
-            .groupBy({ it.first }, { it.second })
 
-        val selectedHabits = habitsByDate[selectedDate].orEmpty()
-        val weeklyTrend = buildWeeklyTrend(habitsByDate, totalCount, now)
+        // Список выполненных привычек для выбранной даты
+        val habitsCompletedOnDate = allCompletions
+            .filter {
+                Instant.ofEpochMilli(it.completionDay)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate() == selectedDate
+            }
+            .mapNotNull { completion -> habits.find { it.id == completion.habitId } }
+
+        // График тренда
+        val weeklyTrend = buildAccurateWeeklyTrend(habits, allCompletions, now)
 
         StatsUiState(
             isLoading = false,
             totalHabitsCount = totalCount,
-            bestStreakOverall = (bestStreak ?: 0),
+            bestStreakOverall = bestStreak ?: 0,
             weeklyCompletionPercentage = weeklyPercentage,
             monthlyCompletionPercentage = monthlyPercentage,
             calendarDays = calendarDays,
             weekRangeLabel = weekRangeLabel,
             selectedDate = selectedDate,
-            selectedDateHabits = selectedHabits,
+            selectedDateHabits = habitsCompletedOnDate,
             weeklyTrend = weeklyTrend
         )
     }.stateIn(
@@ -262,12 +269,11 @@ class HabitViewModel(
         initialValue = StatsUiState()
     )
 
-    // События для UI
+    // События уведомлений
     private val _notificationEvent = SingleLiveEvent<NotificationEvent>()
     val notificationEvent: LiveData<NotificationEvent> = _notificationEvent
 
-
-    // Методы для вызова из UI
+    // --- Методы управления UI (Actions) ---
 
     fun setSortOrder(sortOrder: SortOrder) {
         if (sortOrder == SortOrder.BY_NAME && _sortOrder.value == SortOrder.BY_NAME) {
@@ -283,18 +289,30 @@ class HabitViewModel(
 
     fun setCategoryFilter(category: String?) {
         _categoryFilter.value = category
-        if (category != null) {
-            _habitFilter.value = HabitFilter.ALL
-        }
+        if (category != null) _habitFilter.value = HabitFilter.ALL
     }
 
-    // Остальные методы ViewModel
+    fun onStatsDateSelected(date: LocalDate) {
+        _selectedStatsDate.value = date
+    }
+
+    /**
+     * Сохраняет новую или обновляет существующую привычку.
+     * Также планирует или отменяет уведомление.
+     */
     fun saveHabit(habit: Habit) = viewModelScope.launch {
-        repository.insert(habit)
-        if (habit.notificationTime != null) {
-            _notificationEvent.value = NotificationEvent.Schedule(habit)
+        // 1. Вставляем в БД. DAO должен возвращать Long (новый ID)
+        val returnedId = repository.insert(habit)
+
+        // 2. Если ID привычки был 0, используем полученный ID
+        val realId = if (habit.id == 0) returnedId.toInt() else habit.id
+        val savedHabit = habit.copy(id = realId)
+
+        // 3. Управление уведомлением
+        if (savedHabit.notificationTime != null) {
+            _notificationEvent.value = NotificationEvent.Schedule(savedHabit)
         } else {
-            _notificationEvent.value = NotificationEvent.Cancel(habit.id)
+            _notificationEvent.value = NotificationEvent.Cancel(savedHabit.id)
         }
     }
 
@@ -303,64 +321,170 @@ class HabitViewModel(
         _notificationEvent.value = NotificationEvent.Cancel(habit.id)
     }
 
+    fun clearAllData() = viewModelScope.launch {
+        repository.clearAllHabits()
+    }
+
+    /**
+     * Обновляет прогресс привычки (например, со слайдера).
+     */
+    fun updateHabitProgress(habit: Habit, newValue: Int) = viewModelScope.launch {
+        val isCompleted = newValue >= habit.targetValue
+        val updatedHabitValue = habit.copy(currentValue = newValue)
+        val finalHabit = calculateNewStreakState(updatedHabitValue, isCompleted)
+
+        repository.update(finalHabit)
+        handleCompletionHistory(finalHabit, isCompleted)
+    }
+
+    /**
+     * Обрабатывает клик по чекбоксу или свайп (быстрое выполнение).
+     */
     fun onHabitCheckedChanged(habit: Habit, isCompleted: Boolean) = viewModelScope.launch {
-        // Здесь мы руками делаем +1 или -1, так как это клик по чекбоксу
         val newValue = if (isCompleted) {
             (habit.currentValue + 1).coerceAtMost(habit.targetValue)
         } else {
             (habit.currentValue - 1).coerceAtLeast(0)
         }
 
+        val actuallyCompleted = newValue >= habit.targetValue
         val habitWithNewValue = habit.copy(currentValue = newValue)
+        val finalHabit = calculateNewStreakState(habitWithNewValue, actuallyCompleted)
 
-        // Теперь передаем привычку с уже обновленным значением
-        val finalHabit = calculateNewStreakState(habitWithNewValue, isCompleted)
         repository.update(finalHabit)
+        handleCompletionHistory(finalHabit, actuallyCompleted)
     }
 
-    // Метод для установки конкретного значения прогресса (для слайдера)
-    fun updateHabitProgress(habit: Habit, newValue: Int) = viewModelScope.launch {
-        val isCompleted = newValue >= habit.targetValue
+    // Добавляет или удаляет запись в таблице истории выполнений
+    private suspend fun handleCompletionHistory(habit: Habit, isCompleted: Boolean) {
+        val todayStart = LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-        // Просто обновляем значение
-        val updatedHabitValue = habit.copy(currentValue = newValue)
-
-        // Передаем в функцию расчета стриков
-        val finalHabit = calculateNewStreakState(updatedHabitValue, isCompleted)
-
-        repository.update(finalHabit)
-
-        // Логика истории (HabitCompletion) остается такой же, как в PDF
         if (isCompleted) {
-            val completion = ru.routinely.app.model.HabitCompletion(
+            val completion = HabitCompletion(
                 habitId = habit.id,
-                completionDay = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                completionDay = todayStart,
                 completedAt = System.currentTimeMillis()
             )
             repository.addCompletion(completion)
         } else {
-            val todayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
             repository.removeCompletionForDay(habit.id, todayStart)
         }
     }
 
-    fun clearAllData() = viewModelScope.launch {
-        repository.clearAllHabits()
+    fun toggleTheme(isDark: Boolean) = viewModelScope.launch {
+        userPreferencesRepository.setDarkTheme(isDark)
     }
 
-    fun onStatsDateSelected(date: LocalDate) {
-        _selectedStatsDate.value = date
+    fun toggleNotifications(isEnabled: Boolean) = viewModelScope.launch {
+        userPreferencesRepository.setNotificationsEnabled(isEnabled)
     }
 
-    // Private Business Logic
+    // --- Логика расчета статистики ---
+
+    /**
+     * Считает точный процент выполнения: (Реально выполнено / Запланировано) * 100.
+     * Учитывает дату создания привычки и расписание (type).
+     */
+    private fun calculateAccuratePercentage(
+        habits: List<Habit>,
+        completions: List<HabitCompletion>,
+        startDate: LocalDate,
+        endDate: LocalDate
+    ): Int {
+        if (habits.isEmpty() || startDate > endDate) return 0
+
+        var totalExpected = 0
+        var totalActual = 0
+        val daysCount = ChronoUnit.DAYS.between(startDate, endDate) + 1
+
+        for (i in 0 until daysCount) {
+            val date = startDate.plusDays(i)
+
+            // 1. Какие привычки должны были выполняться в этот день?
+            val scheduledHabits = habits.filter { habit ->
+                val createdDate = Instant.ofEpochMilli(habit.creationDate)
+                    .atZone(ZoneId.systemDefault()).toLocalDate()
+
+                // Проверяем: привычка создана НЕ позже текущей даты проверки И день подходит по расписанию
+                (date.isAfter(createdDate) || date.isEqual(createdDate)) && isHabitScheduledForDate(habit, date)
+            }
+
+            totalExpected += scheduledHabits.size
+
+            // 2. Какие из запланированных были реально выполнены?
+            val actualForDay = completions.count { completion ->
+                val completionDate = Instant.ofEpochMilli(completion.completionDay)
+                    .atZone(ZoneId.systemDefault()).toLocalDate()
+
+                completionDate.isEqual(date) && scheduledHabits.any { it.id == completion.habitId }
+            }
+
+            totalActual += actualForDay
+        }
+
+        if (totalExpected == 0) return 0
+        return ((totalActual.toFloat() / totalExpected.toFloat()) * 100).roundToInt()
+    }
+
+    /**
+     * Строит данные для недельного графика тренда.
+     */
+    private fun buildAccurateWeeklyTrend(
+        habits: List<Habit>,
+        completions: List<HabitCompletion>,
+        referenceDate: LocalDate
+    ): List<DayCompletion> {
+        val startDate = referenceDate.minusDays(6)
+
+        return (0 until 7).map { offset ->
+            val date = startDate.plusDays(offset.toLong())
+
+            val scheduledHabits = habits.filter { habit ->
+                val createdDate = Instant.ofEpochMilli(habit.creationDate)
+                    .atZone(ZoneId.systemDefault()).toLocalDate()
+                (date.isAfter(createdDate) || date.isEqual(createdDate)) && isHabitScheduledForDate(habit, date)
+            }
+
+            val expected = scheduledHabits.size
+            val actual = completions.count { completion ->
+                val completionDate = Instant.ofEpochMilli(completion.completionDay)
+                    .atZone(ZoneId.systemDefault()).toLocalDate()
+                completionDate.isEqual(date) && scheduledHabits.any { it.id == completion.habitId }
+            }
+
+            val ratio = if (expected == 0) 0f else actual.toFloat() / expected.toFloat()
+            DayCompletion(date = date, completionRatio = ratio.coerceIn(0f, 1f))
+        }
+    }
+
+    /**
+     * Проверяет, стоит ли привычка в расписании на указанную дату.
+     */
+    private fun isHabitScheduledForDate(habit: Habit, date: LocalDate): Boolean {
+        if (habit.type == "daily") return true
+
+        // В java.time: Monday=1, Sunday=7.
+        val dayOfWeek = date.dayOfWeek.value
+
+        return try {
+            val scheduledDays = habit.type.split(",").mapNotNull { it.trim().toIntOrNull() }
+            dayOfWeek in scheduledDays
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // --- Вспомогательные методы бизнес-логики ---
+
     private fun filterForToday(habits: List<Habit>): List<Habit> {
-        val todayCalendarDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        val todayIndex = getRoutinelyDayOfWeek(todayCalendarDay)
+        val todayCalendar = Calendar.getInstance()
+        val todayIndex = getRoutinelyDayOfWeek(todayCalendar.get(Calendar.DAY_OF_WEEK))
+
         return habits.filter { habit ->
             when {
                 habit.type == "daily" -> true
                 habit.type.isNotEmpty() && habit.type != "daily" -> {
-                    val selectedDays = habit.type.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+                    val selectedDays = habit.type.split(',').mapNotNull { it.trim().toIntOrNull() }
                     todayIndex in selectedDays
                 }
                 else -> false
@@ -369,108 +493,52 @@ class HabitViewModel(
     }
 
     private fun getRoutinelyDayOfWeek(calendarDay: Int): Int {
+        // Конвертация: Calendar.SUNDAY(1) -> 7, Monday(2) -> 1
         return if (calendarDay == Calendar.SUNDAY) 7 else calendarDay - 1
     }
 
+    private fun isCompletedToday(habit: Habit): Boolean {
+        return habit.currentValue >= habit.targetValue
+    }
+
     private fun calculateNewStreakState(habit: Habit, isCompleted: Boolean): Habit {
-        val today = Calendar.getInstance().timeInMillis
-
-        // Значение уже обновлено до вызова этой функции, берем его из habit
-        val newCurrentValue = habit.currentValue
-
-        // --- ОПРЕДЕЛЕНИЕ СТАТУСА АКТИВНОСТИ ---
-        val wasActiveToday = newCurrentValue > 0
-        // Активность была, но теперь сброшена в 0 (для отмены)
-        val wasResetToZero = !isCompleted && habit.currentValue > 0 && newCurrentValue == 0
-
-        // --- ЛОГИКА ДАТЫ И СТРИКОВ ---
         var newCurrentStreak = habit.currentStreak
         var newBestStreak = habit.bestStreak
-        var newLastCompletedDate: Long? = habit.lastCompletedDate
 
-        if (wasActiveToday && habit.lastCompletedDate == null) {
-            // A) Стрик начинается (первая активность сегодня, ранее не было).
-            val wasCompletedYesterday = false // Упрощение для надежности, или используйте логику проверки вчерашнего дня
-            // Если нужно точно проверить вчерашний день, нужна проверка по БД, но для MVP:
-            // Если lastCompletedDate нет, значит стрик 1.
-            // (Для полноценного учета вчерашнего дня, если он был, lastCompletedDate не был бы null)
-            newCurrentStreak = 1
-            newBestStreak = max(newCurrentStreak, habit.bestStreak)
-            newLastCompletedDate = today
-        } else if (wasActiveToday && newLastCompletedDate == null) {
-            // Этот блок дублирует логику выше, можно объединить, но оставим для структуры
-            newLastCompletedDate = today
-        } else if (wasResetToZero) {
-            // B) Активность сброшена в 0
-            newCurrentStreak = 0 // Или уменьшаем, но для MVP сброс безопаснее
-            newLastCompletedDate = null
+        if (isCompleted && habit.currentValue >= habit.targetValue) {
+            if (!isCompletedToday(habit, LocalDate.now())) {
+                newCurrentStreak += 1
+                newBestStreak = max(newCurrentStreak, newBestStreak)
+            }
+        } else if (!isCompleted && habit.currentStreak > 0) {
+            newCurrentStreak = (newCurrentStreak - 1).coerceAtLeast(0)
         }
 
-        // Если привычка выполнена сегодня, обновляем дату
-        if (newLastCompletedDate == null && wasActiveToday) {
-            newLastCompletedDate = today
-        }
-
-        // Если стрик прерывался (дата была давно), сбрасываем его (упрощенная логика)
-        // Для MVP можно оставить простую установку даты.
+        val lastDate = if (isCompleted) System.currentTimeMillis() else null
 
         return habit.copy(
-            lastCompletedDate = newLastCompletedDate,
             currentStreak = newCurrentStreak,
             bestStreak = newBestStreak,
-            currentValue = newCurrentValue
+            lastCompletedDate = lastDate
         )
     }
 
-    private fun isCompletedToday(habit: Habit): Boolean {
-        val todayStart = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
-        return habit.lastCompletedDate != null && habit.lastCompletedDate!! >= todayStart
+    private fun isCompletedToday(habit: Habit, today: LocalDate): Boolean {
+        val lastDate = habit.lastCompletedDate ?: return false
+        val lastLocalDate = Instant.ofEpochMilli(lastDate).atZone(ZoneId.systemDefault()).toLocalDate()
+        return lastLocalDate.isEqual(today)
     }
 
-    private fun isYesterday(timestamp: Long): Boolean {
-        val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
-        val completionDate = Calendar.getInstance().apply { timeInMillis = timestamp }
-        return yesterday.get(Calendar.YEAR) == completionDate.get(Calendar.YEAR) &&
-                yesterday.get(Calendar.DAY_OF_YEAR) == completionDate.get(Calendar.DAY_OF_YEAR)
-    }
+    // --- Методы календаря ---
 
-    private fun Long.toLocalDate(): LocalDate {
-        return Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDate()
-    }
-
-    private fun calculateCompletionPercentage(
-        completionDates: Set<LocalDate>,
-        startDate: LocalDate,
-        endDate: LocalDate
-    ): Int {
-        if (startDate > endDate) return 0
-        val totalDays = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1
-        if (totalDays <= 0) return 0
-
-        val completedDaysCount = (0 until totalDays).count { offset ->
-            val day = startDate.plusDays(offset.toLong())
-            day in completionDates
-        }
-        val percentage = (completedDaysCount.toFloat() / totalDays.toFloat()) * 100
-        return percentage.roundToInt().coerceIn(0, 100)
-    }
-
-    private fun buildWeekCalendar(
-        completionDates: Set<LocalDate>,
-        selectedDate: LocalDate
-    ): List<CalendarDayState> {
+    private fun buildWeekCalendar(completionDates: Set<LocalDate>, selectedDate: LocalDate): List<CalendarDayState> {
         val startOfWeek = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         return (0 until 7).map { offset ->
             val day = startOfWeek.plusDays(offset.toLong())
             CalendarDayState(
                 date = day,
                 isCompleted = day in completionDates,
-                isSelected = day == selectedDate
+                isSelected = day.isEqual(selectedDate)
             )
         }
     }
@@ -479,20 +547,6 @@ class HabitViewModel(
         val formatter = DateTimeFormatter.ofPattern("dd.MM")
         val startOfWeek = selectedDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val endOfWeek = selectedDate.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-        return "${startOfWeek.format(formatter)}–${endOfWeek.format(formatter)}"
-    }
-
-    private fun buildWeeklyTrend(
-        habitsByDate: Map<LocalDate, List<Habit>>,
-        totalHabitsCount: Int,
-        referenceDate: LocalDate
-    ): List<DayCompletion> {
-        val startDate = referenceDate.minusDays(6)
-        return (0 until 7).map { offset ->
-            val day = startDate.plusDays(offset.toLong())
-            val completedCount = habitsByDate[day]?.size ?: 0
-            val ratio = if (totalHabitsCount == 0) 0f else completedCount.toFloat() / totalHabitsCount.toFloat()
-            DayCompletion(date = day, completionRatio = ratio.coerceIn(0f, 1f))
-        }
+        return "${startOfWeek.format(formatter)} – ${endOfWeek.format(formatter)}"
     }
 }

@@ -19,7 +19,7 @@ interface HabitDao {
      * В случае конфликта (например, одинаковый id) заменяет старую запись.
      */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertHabit(habit: Habit)
+    suspend fun insertHabit(habit: Habit): Long // Возвращает Long (rowId)
 
     /**
      * Обновляет существующую привычку.

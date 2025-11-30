@@ -86,8 +86,8 @@ class HabitRepository(private val habitDao: HabitDao) {
      * Вставляет или обновляет привычку в источнике данных.
      * @param habit Объект привычки для сохранения.
      */
-    suspend fun insert(habit: Habit) {
-        habitDao.insertHabit(habit)
+    suspend fun insert(habit: Habit): Long {
+        return habitDao.insertHabit(habit)
     }
 
     /**

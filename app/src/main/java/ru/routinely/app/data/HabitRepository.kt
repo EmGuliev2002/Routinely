@@ -124,6 +124,14 @@ class HabitRepository(private val habitDao: HabitDao) {
      */
     val allCompletions: Flow<List<HabitCompletion>> = habitDao.getAllCompletions()
 
+    /**
+     * Предоставляет Flow со списком всех дат выполнения (timestamp типа Long).
+     * Используется для построения тепловой карты и статистики.
+     */
+    val completionDates: Flow<List<Long>> = allCompletions.map { list ->
+        list.map { it.completionDay }
+    }
+
     // --- Методы для специфичных операций ---
 
     /**

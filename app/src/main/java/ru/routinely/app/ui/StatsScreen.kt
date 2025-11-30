@@ -1,5 +1,6 @@
 package ru.routinely.app.ui
 
+import android.graphics.Color as AndroidColor // Алиас для избежания конфликта имен
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -53,7 +54,6 @@ import ru.routinely.app.viewmodel.CalendarDayState
 import ru.routinely.app.viewmodel.DayCompletion
 import ru.routinely.app.viewmodel.HabitViewModel
 import ru.routinely.app.viewmodel.StatsUiState
-import android.graphics.Color as AndroidColor // Импорт для использования Color.parseColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +62,6 @@ fun StatsScreen(
     onNavigateBack: () -> Unit
 ) {
     val statsUiState by habitViewModel.statsUiState.collectAsState()
-
     Scaffold(
         topBar = { StatsTopBar(onNavigateBack) }
     ) { paddingValues ->
@@ -76,19 +75,15 @@ fun StatsScreen(
                 state = statsUiState,
                 onDateSelected = habitViewModel::onStatsDateSelected
             )
-
             DailyHabitCompletionList(
                 selectedDate = statsUiState.selectedDate,
                 habits = statsUiState.selectedDateHabits
             )
-
             Spacer(Modifier.height(24.dp))
-
             StatProgressChart(
                 weeklyTrend = statsUiState.weeklyTrend,
                 weeklyPercentage = statsUiState.weeklyCompletionPercentage
             )
-
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -113,12 +108,24 @@ fun StatsHeaderSection(
     state: StatsUiState,
     onDateSelected: (LocalDate) -> Unit
 ) {
-    val summaryCards = remember(state.totalHabitsCount, state.bestStreakOverall, state.weeklyCompletionPercentage, state.monthlyCompletionPercentage) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+
+    val summaryCards = remember(
+        state.totalHabitsCount,
+        state.bestStreakOverall,
+        state.weeklyCompletionPercentage,
+        state.monthlyCompletionPercentage,
+        primaryColor,
+        tertiaryColor,
+        secondaryColor
+    ) {
         listOf(
-            Triple("Всего привычек", state.totalHabitsCount.toString(), MaterialTheme.colorScheme.primary),
-            Triple("Лучшая серия", state.bestStreakOverall.toString(), MaterialTheme.colorScheme.tertiary),
-            Triple("Неделя", "${state.weeklyCompletionPercentage}%", MaterialTheme.colorScheme.secondary),
-            Triple("Месяц", "${state.monthlyCompletionPercentage}%", MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
+            Triple("Всего привычек", state.totalHabitsCount.toString(), primaryColor),
+            Triple("Лучшая серия", state.bestStreakOverall.toString(), tertiaryColor),
+            Triple("Неделя", "${state.weeklyCompletionPercentage}%", secondaryColor),
+            Triple("Месяц", "${state.monthlyCompletionPercentage}%", primaryColor.copy(alpha = 0.7f))
         )
     }
 
@@ -135,9 +142,7 @@ fun StatsHeaderSection(
                 text = state.weekRangeLabel,
                 fontWeight = FontWeight.SemiBold
             )
-
             Spacer(Modifier.height(12.dp))
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -151,9 +156,7 @@ fun StatsHeaderSection(
                     )
                 }
             }
-
             Spacer(Modifier.height(16.dp))
-
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -176,13 +179,11 @@ fun StatsHeaderSection(
 @Composable
 fun DayBadge(dayState: CalendarDayState, onClick: () -> Unit) {
     val completedColor = Color(0xFFC8A2C8) // Фиолетовый из дизайна
-
     val backgroundColor = when {
         dayState.isSelected -> MaterialTheme.colorScheme.primary
         dayState.isCompleted -> completedColor
         else -> MaterialTheme.colorScheme.surface
     }
-
     Box(
         modifier = Modifier
             .size(48.dp)
@@ -192,7 +193,9 @@ fun DayBadge(dayState: CalendarDayState, onClick: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         val textColor = if (dayState.isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-        val dayOfWeek = dayState.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("ru")).replace('.', ' ').trim()
+        val dayOfWeek = dayState.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("ru"))
+            .replace('.', ' ').trim()
+
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = dayOfWeek.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("ru")) else it.toString() },
@@ -216,6 +219,7 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
         DateTimeFormatter.ofPattern("EEEE dd.MM", Locale("ru"))
     }
     val formattedDate = selectedDate.format(dateFormatter).replaceFirstChar { it.uppercase(Locale("ru")) }
+
     Text(
         text = formattedDate,
         style = MaterialTheme.typography.titleLarge,
@@ -245,7 +249,10 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
                 habits.forEachIndexed { index, habit ->
                     StatsHabitListItem(habit)
                     if (index < habits.lastIndex) {
-                        Divider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                        Divider(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                        )
                     }
                 }
             }
@@ -253,11 +260,11 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
     }
 }
 
-
 @Composable
 fun StatsHabitListItem(habit: Habit) {
     val isCompleted = habit.lastCompletedDate != null
     val streakValue = if (habit.currentStreak > 0) "${habit.currentStreak} дн." else "0 дн."
+
     val completionTime = habit.lastCompletedDate?.let {
         DateTimeFormatter.ofPattern("HH:mm").format(
             java.time.Instant.ofEpochMilli(it)
@@ -272,7 +279,7 @@ fun StatsHabitListItem(habit: Habit) {
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 1. Иконка (используем функцию getIconByName из HabitItem.kt)
+        // 1. Иконка
         Icon(
             imageVector = getIconByName(habit.icon),
             contentDescription = null,
@@ -283,6 +290,7 @@ fun StatsHabitListItem(habit: Habit) {
                 .background(Color(AndroidColor.parseColor(habit.color ?: "#B88EFA")).copy(alpha = 0.85f))
                 .padding(8.dp)
         )
+
         Spacer(Modifier.width(12.dp))
 
         // 2. Название и Прогресс
@@ -315,7 +323,12 @@ fun StatsHabitListItem(habit: Habit) {
 
         // 5. Время
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Schedule, contentDescription = "Время выполнения", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                Icons.Default.Schedule,
+                contentDescription = "Время выполнения",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.width(4.dp))
             Text(text = completionTime, style = MaterialTheme.typography.bodyMedium)
         }
@@ -325,8 +338,7 @@ fun StatsHabitListItem(habit: Habit) {
 @Composable
 fun SummaryStatCard(title: String, value: String, accentColor: Color, modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier
-            .height(96.dp),
+        modifier = modifier.height(96.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
@@ -370,7 +382,6 @@ fun StatProgressChart(weeklyTrend: List<DayCompletion>, weeklyPercentage: Int) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(16.dp))
-
             WeeklyTrendChart(weeklyTrend = weeklyTrend)
         }
     }
@@ -393,7 +404,6 @@ fun WeeklyTrendChart(weeklyTrend: List<DayCompletion>) {
         }
         return
     }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()

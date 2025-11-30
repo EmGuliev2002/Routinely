@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import ru.routinely.app.data.HabitRepository
+import ru.routinely.app.data.UserPreferencesRepository
 import ru.routinely.app.model.Habit
 import ru.routinely.app.utils.HabitFilter
 import ru.routinely.app.utils.SortOrder
@@ -30,6 +31,7 @@ import java.util.Calendar
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
+import ru.routinely.app.model.HabitCompletion
 
 // Вспомогательные классы
 
@@ -104,7 +106,10 @@ data class StatsUiState(
 /**
  * ViewModel для управления данными привычек.
  */
-class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
+class HabitViewModel(
+    private val repository: HabitRepository,
+    private val userPrefsRepository: UserPreferencesRepository
+) : ViewModel() {
 
     // Состояния для UI
 
@@ -173,6 +178,29 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
         initialValue = HabitUiState()
     )
 
+    // Добавляем этот поток для экрана TodayScreen
+    val completions: StateFlow<List<HabitCompletion>> = repository.allCompletions
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = emptyList()
+        )
+
+    // НАСТРОЙКИ
+    val userPreferences = userPrefsRepository.userPreferencesFlow
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = ru.routinely.app.data.UserPreferences(false, true)
+        )
+
+    fun toggleTheme(isDark: Boolean) = viewModelScope.launch {
+        userPrefsRepository.setDarkTheme(isDark)
+    }
+
+    fun toggleNotifications(isEnabled: Boolean) = viewModelScope.launch {
+        userPrefsRepository.setNotificationsEnabled(isEnabled)
+    }
 
     // Состояния для экрана "Статистика"
     val totalHabitsCount: LiveData<Int> = repository.totalHabitsCount.asLiveData()
@@ -276,8 +304,44 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     }
 
     fun onHabitCheckedChanged(habit: Habit, isCompleted: Boolean) = viewModelScope.launch {
-        val updatedHabit = calculateNewStreakState(habit, isCompleted)
-        repository.update(updatedHabit)
+        // Здесь мы руками делаем +1 или -1, так как это клик по чекбоксу
+        val newValue = if (isCompleted) {
+            (habit.currentValue + 1).coerceAtMost(habit.targetValue)
+        } else {
+            (habit.currentValue - 1).coerceAtLeast(0)
+        }
+
+        val habitWithNewValue = habit.copy(currentValue = newValue)
+
+        // Теперь передаем привычку с уже обновленным значением
+        val finalHabit = calculateNewStreakState(habitWithNewValue, isCompleted)
+        repository.update(finalHabit)
+    }
+
+    // Метод для установки конкретного значения прогресса (для слайдера)
+    fun updateHabitProgress(habit: Habit, newValue: Int) = viewModelScope.launch {
+        val isCompleted = newValue >= habit.targetValue
+
+        // Просто обновляем значение
+        val updatedHabitValue = habit.copy(currentValue = newValue)
+
+        // Передаем в функцию расчета стриков
+        val finalHabit = calculateNewStreakState(updatedHabitValue, isCompleted)
+
+        repository.update(finalHabit)
+
+        // Логика истории (HabitCompletion) остается такой же, как в PDF
+        if (isCompleted) {
+            val completion = ru.routinely.app.model.HabitCompletion(
+                habitId = habit.id,
+                completionDay = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                completedAt = System.currentTimeMillis()
+            )
+            repository.addCompletion(completion)
+        } else {
+            val todayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            repository.removeCompletionForDay(habit.id, todayStart)
+        }
     }
 
     fun clearAllData() = viewModelScope.launch {
@@ -311,55 +375,45 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
     private fun calculateNewStreakState(habit: Habit, isCompleted: Boolean): Habit {
         val today = Calendar.getInstance().timeInMillis
 
-        // --- 1. РАСЧЕТ НОВОГО currentValue (+1 или -1) ---
-        val newCurrentValue = if (isCompleted) {
-            // ИНКРЕМЕНТ: +1, не превышая targetValue
-            (habit.currentValue + 1).coerceAtMost(habit.targetValue)
-        } else {
-            // ДЕКРЕМЕНТ: -1, не опускаясь ниже 0
-            (habit.currentValue - 1).coerceAtLeast(0)
-        }
+        // Значение уже обновлено до вызова этой функции, берем его из habit
+        val newCurrentValue = habit.currentValue
 
-        // --- 2. ОПРЕДЕЛЕНИЕ СТАТУСА АКТИВНОСТИ ---
-        // Активность есть, если newCurrentValue > 0. Этот флаг теперь управляет стриком.
+        // --- ОПРЕДЕЛЕНИЕ СТАТУСА АКТИВНОСТИ ---
         val wasActiveToday = newCurrentValue > 0
-
         // Активность была, но теперь сброшена в 0 (для отмены)
         val wasResetToZero = !isCompleted && habit.currentValue > 0 && newCurrentValue == 0
 
-
-        // --- 3. ЛОГИКА ДАТЫ И СТРИКОВ ---
-
+        // --- ЛОГИКА ДАТЫ И СТРИКОВ ---
         var newCurrentStreak = habit.currentStreak
         var newBestStreak = habit.bestStreak
         var newLastCompletedDate: Long? = habit.lastCompletedDate
 
-
         if (wasActiveToday && habit.lastCompletedDate == null) {
             // A) Стрик начинается (первая активность сегодня, ранее не было).
-            // Проверяем, было ли выполнение вчера, используя lastCompletedDate из DB, а не локальный.
-            val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-            newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
+            val wasCompletedYesterday = false // Упрощение для надежности, или используйте логику проверки вчерашнего дня
+            // Если нужно точно проверить вчерашний день, нужна проверка по БД, но для MVP:
+            // Если lastCompletedDate нет, значит стрик 1.
+            // (Для полноценного учета вчерашнего дня, если он был, lastCompletedDate не был бы null)
+            newCurrentStreak = 1
             newBestStreak = max(newCurrentStreak, habit.bestStreak)
             newLastCompletedDate = today
-
         } else if (wasActiveToday && newLastCompletedDate == null) {
-            // Активность есть (newCurrentValue > 0), но дата сброшена (новая привычка или reset)
+            // Этот блок дублирует логику выше, можно объединить, но оставим для структуры
             newLastCompletedDate = today
         } else if (wasResetToZero) {
-            // B) Активность сброшена в 0 (Отмена последнего действия)
-            newCurrentStreak = 0 // Сброс текущего стрика
+            // B) Активность сброшена в 0
+            newCurrentStreak = 0 // Или уменьшаем, но для MVP сброс безопаснее
             newLastCompletedDate = null
         }
 
-        // ВАЖНО: Если lastCompletedDate уже установлен на сегодня, мы не меняем стрик
-        // при добавлении прогресса (+2, +3 и т.д.), но обновляем lastCompletedDate,
-        // чтобы TodayScreen корректно отображал статус.
+        // Если привычка выполнена сегодня, обновляем дату
         if (newLastCompletedDate == null && wasActiveToday) {
             newLastCompletedDate = today
         }
 
-        // --- 4. ВОЗВРАТ ОБНОВЛЕННОЙ ПРИВЫЧКИ ---
+        // Если стрик прерывался (дата была давно), сбрасываем его (упрощенная логика)
+        // Для MVP можно оставить простую установку даты.
+
         return habit.copy(
             lastCompletedDate = newLastCompletedDate,
             currentStreak = newCurrentStreak,
@@ -367,28 +421,6 @@ class HabitViewModel(private val repository: HabitRepository) : ViewModel() {
             currentValue = newCurrentValue
         )
     }
-
-    /*private fun calculateNewStreakState(habit: Habit, isCompleted: Boolean): Habit {
-        if (isCompleted) {
-                val today = System.currentTimeMillis()
-                val wasCompletedYesterday = habit.lastCompletedDate?.let { isYesterday(it) } ?: false
-                val newCurrentStreak = if (wasCompletedYesterday) habit.currentStreak + 1 else 1
-                val newBestStreak = max(newCurrentStreak, habit.bestStreak)
-            return habit.copy(
-                lastCompletedDate = today,
-                currentStreak = newCurrentStreak,
-                bestStreak = newBestStreak,
-                currentValue = habit.targetValue
-            )
-        } else {
-            val wasCompletedToday = isCompletedToday(habit)
-            return habit.copy(
-                lastCompletedDate = null,
-                currentStreak = if (wasCompletedToday) habit.currentStreak - 1 else habit.currentStreak,
-                currentValue = 0
-            )
-        }
-    }*/
 
     private fun isCompletedToday(habit: Habit): Boolean {
         val todayStart = Calendar.getInstance().apply {

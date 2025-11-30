@@ -16,12 +16,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.routinely.app.viewmodel.HabitViewModel
-import kotlinx.coroutines.launch
 
 /**
- * Основной компонент для экрана настроек.
- * @param habitViewModel нужен для сброса данных.
- * @param onNavigateBack функция, вызываемая при нажатии на стрелку "Назад" (для TopBar).
+ * Основной экран настроек.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +26,10 @@ fun SettingsScreen(
     habitViewModel: HabitViewModel,
     onNavigateBack: () -> Unit
 ) {
+    // Подписываемся на поток настроек из ViewModel
+    // Если userPreferences еще не загрузились, будут использованы значения по умолчанию
+    val prefs by habitViewModel.userPreferences.collectAsState()
+
     Scaffold(
         topBar = { SettingsTopBar(onNavigateBack) }
     ) { paddingValues ->
@@ -43,54 +44,57 @@ fun SettingsScreen(
 
             // --- 1. Секция Уведомлений ---
             SettingsSection(title = "Уведомления") {
-                // 1.1. Звук (Переключатель)
+                // Переключатель уведомлений
                 SwitchSettingItem(
-                    title = "Звук",
-                    icon = Icons.Default.VolumeUp,
-                    initialValue = true,
-                    onCheckedChange = { /* TODO: Здесь будет логика сохранения настройки */ }
-                )
-
-                Divider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-
-                // 1.2. Рингтон (Кликабельный элемент)
-                ClickableSettingItem(
-                    title = "Рингтон",
-                    icon = Icons.Default.MusicNote,
-                    onClick = { /* TODO: Открыть выбор рингтона */ }
+                    title = "Уведомления",
+                    icon = Icons.Default.Notifications,
+                    isChecked = prefs.notificationsEnabled,
+                    onCheckedChange = { isEnabled ->
+                        habitViewModel.toggleNotifications(isEnabled)
+                    }
                 )
             }
 
             Spacer(Modifier.height(24.dp))
 
-            // --- 2. Секция Системных настроек ---
-            SettingsSection(title = "Системные настройки") {
-                // 2.1. Тема
-                ClickableSettingItem(
-                    title = "Тема",
-                    icon = Icons.Default.BrightnessMedium,
-                    onClick = { /* TODO: Открыть выбор темы */ }
-                )
-
-                Divider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-
-                // 2.2. Сброс данных (С диалогом подтверждения)
-                ResetDataSettingItem(habitViewModel = habitViewModel)
-
-                Divider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-
-                // 2.3. О приложении
-                ClickableSettingItem(
-                    title = "О приложении",
-                    icon = Icons.Default.Info,
-                    onClick = { /* TODO: Открыть экран с информацией о версии */ }
+            // --- 2. Секция Внешний вид ---
+            SettingsSection(title = "Внешний вид") {
+                // Переключатель темной темы
+                SwitchSettingItem(
+                    title = "Темная тема",
+                    icon = Icons.Default.DarkMode,
+                    isChecked = prefs.isDarkTheme,
+                    onCheckedChange = { isDark ->
+                        habitViewModel.toggleTheme(isDark)
+                    }
                 )
             }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- 3. Секция Данные ---
+            SettingsSection(title = "Данные") {
+                // Пункт сброса данных (с диалогом)
+                ResetDataSettingItem(habitViewModel = habitViewModel)
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // --- 4. О приложении ---
+            SettingsSection(title = "О приложении") {
+                ClickableSettingItem(
+                    title = "Версия 1.0.0",
+                    icon = Icons.Default.Info,
+                    onClick = { /* Можно добавить Toast или переход на экран "О нас" */ }
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-// --- Вспомогательные компоненты для SettingsScreen ---
+// --- Вспомогательные компоненты ---
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,9 +131,46 @@ fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) 
     }
 }
 
-/**
- * Элемент для сброса данных, который показывает AlertDialog для подтверждения.
- */
+@Composable
+fun SwitchSettingItem(
+    title: String,
+    icon: ImageVector,
+    isChecked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    ListItem(
+        modifier = Modifier.clickable { onCheckedChange(!isChecked) },
+        headlineContent = { Text(title) },
+        leadingContent = {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        },
+        trailingContent = {
+            Switch(
+                checked = isChecked,
+                onCheckedChange = onCheckedChange
+            )
+        }
+    )
+}
+
+@Composable
+fun ClickableSettingItem(title: String, icon: ImageVector, onClick: () -> Unit) {
+    ListItem(
+        modifier = Modifier.clickable(onClick = onClick),
+        headlineContent = { Text(title) },
+        leadingContent = {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        },
+        trailingContent = {
+            Icon(
+                Icons.Default.KeyboardArrowRight,
+                contentDescription = "Перейти",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    )
+}
+
 @Composable
 fun ResetDataSettingItem(habitViewModel: HabitViewModel) {
     var showDialog by remember { mutableStateOf(false) }
@@ -142,7 +183,7 @@ fun ResetDataSettingItem(habitViewModel: HabitViewModel) {
             confirmButton = {
                 Button(
                     onClick = {
-                        habitViewModel.clearAllData() // Вызов ViewModel
+                        habitViewModel.clearAllData() // Вызов метода очистки
                         showDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -160,30 +201,5 @@ fun ResetDataSettingItem(habitViewModel: HabitViewModel) {
         title = "Сброс данных",
         icon = Icons.Default.Delete,
         onClick = { showDialog = true }
-    )
-}
-
-@Composable
-fun SwitchSettingItem(title: String, icon: ImageVector, initialValue: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    var isChecked by remember { mutableStateOf(initialValue) }
-    ListItem(
-        modifier = Modifier.clickable { isChecked = !isChecked; onCheckedChange(isChecked) },
-        headlineContent = { Text(title) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        trailingContent = {
-            Switch(checked = isChecked, onCheckedChange = { isChecked = it; onCheckedChange(it) })
-        }
-    )
-}
-
-@Composable
-fun ClickableSettingItem(title: String, icon: ImageVector, onClick: () -> Unit) {
-    ListItem(
-        modifier = Modifier.clickable(onClick = onClick),
-        headlineContent = { Text(title) },
-        leadingContent = { Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        trailingContent = {
-            Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Перейти", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
     )
 }

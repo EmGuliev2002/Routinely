@@ -1,3 +1,5 @@
+package ru.routinely.app.ui
+
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -195,14 +197,14 @@ fun HabitProgressBar(habit: Habit, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Прогресс-бар
         LinearProgressIndicator(
-        progress = { progress.coerceIn(0f, 1f) },
-        modifier = Modifier
-                        .weight(1f)
-                        .height(8.dp)
-                        .clip(RoundedCornerShape(4.dp)),
-        color = Color.White,
-        trackColor = Color.White.copy(alpha = 0.4f),
-        strokeCap = ProgressIndicatorDefaults.LinearStrokeCap,
+            progress = { progress.coerceIn(0f, 1f) },
+            modifier = Modifier
+                .weight(1f)
+                .height(8.dp)
+                .clip(RoundedCornerShape(4.dp)),
+            color = Color.White,
+            trackColor = Color.White.copy(alpha = 0.4f),
+            strokeCap = ProgressIndicatorDefaults.LinearStrokeCap,
         )
         // Текстовое значение прогресса
         Spacer(Modifier.width(8.dp))

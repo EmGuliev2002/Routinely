@@ -285,7 +285,9 @@ class HabitViewModelTest {
 
         val state = viewModel.statsUiState.first { !it.isLoading && it.selectedDate == targetDate }
 
-        assertEquals(listOf(reading), state.selectedDateHabits)
+        assertEquals(2, state.selectedDateHabits.size)
+        val readingSnapshot = state.selectedDateHabits.first { it.habit.id == reading.id }
+        assertTrue(readingSnapshot.isCompleted)
         val selectedDay = state.calendarDays.first { it.date == targetDate }
         assertEquals(true, selectedDay.isSelected)
         assertEquals(true, selectedDay.isCompleted)
@@ -370,7 +372,8 @@ class HabitViewModelTest {
         viewModel.deleteHabit(habit)
         advanceUntilIdle()
 
-        assertTrue(habitDao.latestHabits().isEmpty())
+        val stored = habitDao.latestHabits().first { it.id == habit.id }
+        assertTrue(stored.isArchived)
         val cancelEvent = events.single() as NotificationEvent.Cancel
         assertEquals(habit.id, cancelEvent.habitId)
     }

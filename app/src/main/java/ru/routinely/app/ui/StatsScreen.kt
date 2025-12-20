@@ -49,10 +49,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
-import ru.routinely.app.model.Habit
 import ru.routinely.app.viewmodel.CalendarDayState
 import ru.routinely.app.viewmodel.DayCompletion
 import ru.routinely.app.viewmodel.HabitViewModel
+import ru.routinely.app.viewmodel.SelectedDateHabit
 import ru.routinely.app.viewmodel.StatsUiState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,7 +214,7 @@ fun DayBadge(dayState: CalendarDayState, onClick: () -> Unit) {
 }
 
 @Composable
-fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
+fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<SelectedDateHabit>) {
     val dateFormatter = remember {
         DateTimeFormatter.ofPattern("EEEE dd.MM", Locale("ru"))
     }
@@ -261,16 +261,11 @@ fun DailyHabitCompletionList(selectedDate: LocalDate, habits: List<Habit>) {
 }
 
 @Composable
-fun StatsHabitListItem(habit: Habit) {
-    val isCompleted = habit.lastCompletedDate != null
-    val streakValue = if (habit.currentStreak > 0) "${habit.currentStreak} дн." else "0 дн."
+fun StatsHabitListItem(habit: SelectedDateHabit) {
+    val streakValue = if (habit.streakOnDate > 0) "${habit.streakOnDate} дн." else "0 дн."
 
-    val completionTime = habit.lastCompletedDate?.let {
-        DateTimeFormatter.ofPattern("HH:mm").format(
-            java.time.Instant.ofEpochMilli(it)
-                .atZone(java.time.ZoneId.systemDefault())
-                .toLocalTime()
-        )
+    val completionTime = habit.completionTime?.let {
+        DateTimeFormatter.ofPattern("HH:mm").format(it)
     } ?: "--:--"
 
     Row(
@@ -281,13 +276,13 @@ fun StatsHabitListItem(habit: Habit) {
     ) {
         // 1. Иконка
         Icon(
-            imageVector = getIconByName(habit.icon),
+            imageVector = getIconByName(habit.habit.icon),
             contentDescription = null,
             tint = Color.White,
             modifier = Modifier
                 .size(36.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(Color(AndroidColor.parseColor(habit.color ?: "#B88EFA")).copy(alpha = 0.85f))
+                .background(Color(AndroidColor.parseColor(habit.habit.color ?: "#B88EFA")).copy(alpha = 0.85f))
                 .padding(8.dp)
         )
 
@@ -295,9 +290,9 @@ fun StatsHabitListItem(habit: Habit) {
 
         // 2. Название и Прогресс
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = habit.name, fontWeight = FontWeight.Medium)
+            Text(text = habit.habit.name, fontWeight = FontWeight.Medium)
             Text(
-                text = if (habit.targetValue > 1) "${habit.currentValue}/${habit.targetValue} стр." else "1 раз",
+                text = if (habit.habit.targetValue > 1) "${habit.habit.targetValue} стр." else "1 раз",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -305,9 +300,9 @@ fun StatsHabitListItem(habit: Habit) {
 
         // 3. Статус выполнения
         Icon(
-            imageVector = if (isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle,
-            contentDescription = if (isCompleted) "Выполнено" else "Не выполнено",
-            tint = if (isCompleted) Color(0xFFC8A2C8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            imageVector = if (habit.isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle,
+            contentDescription = if (habit.isCompleted) "Выполнено" else "Не выполнено",
+            tint = if (habit.isCompleted) Color(0xFFC8A2C8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
             modifier = Modifier.size(20.dp)
         )
 

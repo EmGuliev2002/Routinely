@@ -18,6 +18,9 @@ import androidx.room.PrimaryKey
  * @param currentValue Текущее выполненное значение (для прогресс-баров).
  * @param creationDate Временная метка создания привычки для сортировки.
  * @param lastCompletedDate Временная метка последнего выполнения. Ключевое поле для логики стриков.
+ * @param lastProgressDate Дата последнего обновления прогресса (начало суток). Используется для сброса прогресса на новый день.
+ * @param archiveDate Дата архивации (начало суток). Используется, чтобы временно учитывать привычку в статистике до конца недели архивации.
+ * @param isArchived Флаг архивации. Архивированные привычки скрываются из активного списка, но остаются для статистики.
  * @param currentStreak Текущая непрерывная серия выполнений.
  * @param bestStreak Лучшая непрерывная серия выполнений за все время.
  */
@@ -57,6 +60,15 @@ data class Habit(
 
     @ColumnInfo(name = "last_completed_date")
     val lastCompletedDate: Long? = null,
+
+    @ColumnInfo(name = "last_progress_date")
+    val lastProgressDate: Long? = null,
+
+    @ColumnInfo(name = "archive_date")
+    val archiveDate: Long? = null,
+
+    @ColumnInfo(name = "is_archived")
+    val isArchived: Boolean = false,
 
     @ColumnInfo(name = "current_streak")
     val currentStreak: Int = 0,

@@ -13,7 +13,7 @@ import ru.routinely.app.model.HabitCompletion
  * @property version Версия схемы базы данных. Необходимо инкрементировать при каждом изменении схемы.
  * @property exportSchema Определяет, должна ли Room экспортировать схему в JSON-файл в папке проекта.
  */
-@Database(entities = [Habit::class, HabitCompletion::class], version = 2, exportSchema = false)
+@Database(entities = [Habit::class, HabitCompletion::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     /**

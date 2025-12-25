@@ -24,10 +24,10 @@ import ru.routinely.app.viewmodel.HabitViewModel
 @Composable
 fun SettingsScreen(
     habitViewModel: HabitViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToAbout: () -> Unit
 ) {
     // Подписываемся на поток настроек из ViewModel
-    // Если userPreferences еще не загрузились, будут использованы значения по умолчанию
     val prefs by habitViewModel.userPreferences.collectAsState()
 
     Scaffold(
@@ -83,9 +83,9 @@ fun SettingsScreen(
             // --- 4. О приложении ---
             SettingsSection(title = "О приложении") {
                 ClickableSettingItem(
-                    title = "Версия 1.0.0",
+                    title = "О программе",
                     icon = Icons.Default.Info,
-                    onClick = { /* Можно добавить Toast или переход на экран "О нас" */ }
+                    onClick = onNavigateToAbout
                 )
             }
 

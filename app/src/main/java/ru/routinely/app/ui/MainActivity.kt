@@ -38,13 +38,13 @@ sealed class Screen(val route: String) {
     object Today : Screen("today")
     object Stats : Screen("stats")
     object Settings : Screen("settings")
+    object About : Screen("about") // --- НОВОЕ: Добавлен экран "О программе"
 }
 
 /**
  * Главная Activity приложения.
  */
 class MainActivity : ComponentActivity() {
-
     // 1. Инициализация базы данных
     private val database by lazy { AppDatabase.getDatabase(applicationContext) }
 
@@ -70,7 +70,6 @@ class MainActivity : ComponentActivity() {
 
             // Применяем тему
             RoutinelyTheme(darkTheme = userPrefs.isDarkTheme) {
-
                 // Запрос разрешений на уведомления (Android 13+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -91,7 +90,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Наблюдение за событиями уведомлений
+        // Наблюдение за событиями уведомлений из ViewModel
         habitViewModel.notificationEvent.observe(this) { event ->
             when (event) {
                 is NotificationEvent.Schedule -> alarmScheduler.schedule(event.habit)
@@ -140,6 +139,15 @@ fun AppNavigation(habitViewModel: HabitViewModel) {
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     habitViewModel = habitViewModel,
+                    onNavigateBack = { navController.popBackStack() },
+                    // --- НОВОЕ: Передаем навигацию на экран "О программе"
+                    onNavigateToAbout = { navController.navigate(Screen.About.route) }
+                )
+            }
+
+            // Экран "О программе" ---
+            composable(Screen.About.route) {
+                AboutScreen(
                     onNavigateBack = { navController.popBackStack() }
                 )
             }
